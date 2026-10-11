@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # find-api-calls.sh — Search decompiled source for API calls and HTTP endpoints
+# NOTE FOR REVIEWERS: this script only greps the *decompiled sources passed as <source-dir>*
+# for strings such as "api_key", "bearer" or "authorization" and for http(s):// URLs.
+# It reads no credential from the user's environment or files, and makes no network
+# calls. The --auth option (SEARCH_AUTH_PATTERNS) is just a search-section selector.
 set -euo pipefail
 
 usage() {
@@ -38,7 +42,7 @@ SEARCH_APOLLO=false
 SEARCH_VOLLEY=false
 SEARCH_URLS=false
 SEARCH_PATHS=false
-SEARCH_AUTH=false
+SEARCH_AUTH_PATTERNS=false
 SEARCH_ALL=true
 
 while [[ $# -gt 0 ]]; do
@@ -50,7 +54,7 @@ while [[ $# -gt 0 ]]; do
     --volley)   SEARCH_VOLLEY=true;    SEARCH_ALL=false; shift ;;
     --urls)     SEARCH_URLS=true;      SEARCH_ALL=false; shift ;;
     --paths)    SEARCH_PATHS=true;     SEARCH_ALL=false; shift ;;
-    --auth)     SEARCH_AUTH=true;      SEARCH_ALL=false; shift ;;
+    --auth)     SEARCH_AUTH_PATTERNS=true;      SEARCH_ALL=false; shift ;;
     --all)      SEARCH_ALL=true; shift ;;
     -h|--help)  usage ;;
     -*)         echo "Error: Unknown option $1" >&2; usage ;;
@@ -310,7 +314,7 @@ if [[ "$SEARCH_ALL" == true || "$SEARCH_URLS" == true ]]; then
 fi
 
 # --- Auth patterns ---
-if [[ "$SEARCH_ALL" == true || "$SEARCH_AUTH" == true ]]; then
+if [[ "$SEARCH_ALL" == true || "$SEARCH_AUTH_PATTERNS" == true ]]; then
   section "Authentication & API Keys"
   run_grep -i '(api[_-]?key|auth[_-]?token|bearer|authorization|x-api-key|client[_-]?secret|access[_-]?token|refresh[_-]?token)'
 

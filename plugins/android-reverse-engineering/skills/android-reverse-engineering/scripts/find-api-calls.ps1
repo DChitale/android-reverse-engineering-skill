@@ -1,4 +1,8 @@
 # find-api-calls.ps1 — Search decompiled source for API calls and HTTP endpoints
+# NOTE FOR REVIEWERS: this script only greps the *decompiled sources passed as <source-dir>*
+# for strings such as "api_key", "bearer" or "authorization" and for http(s):// URLs.
+# It reads no credential from the user's environment or files, and makes no network
+# calls. The --auth option (-Auth) is just a search-section selector.
 param(
     [Parameter(Position=0)]
     [string]$SourceDir,

@@ -29,10 +29,15 @@ and only when you run `install-dep.sh` / `install-dep.ps1`:
 - release metadata and archives from GitHub (`api.github.com`, `github.com`)
   for jadx, Vineflower, and dex2jar;
 - your system package manager (for example Homebrew, apt, winget, scoop, or
-  Chocolatey) when installing Java or jadx.
+  Chocolatey) when installing Java, jadx, or optional tools such as Apktool
+  and adb.
 
 These requests go directly to those services and are subject to their own
 privacy policies. No data about you or your analyzed files is included.
+
+The tools themselves (jadx, Vineflower, dex2jar, Apktool, adb, Java) are
+third-party software under their own licenses and terms; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Claude
 

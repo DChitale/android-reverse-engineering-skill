@@ -81,9 +81,12 @@ section() {
 }
 
 run_grep() {
+  # Optional leading -i for case-insensitive sections.
+  local case_flag=""
+  if [[ "$1" == "-i" ]]; then case_flag="-i"; shift; fi
   local pattern="$1"
   # shellcheck disable=SC2086
-  grep $GREP_OPTS -E "$pattern" "$SOURCE_DIR" 2>/dev/null || true
+  grep $GREP_OPTS $case_flag -E -e "$pattern" "$SOURCE_DIR" 2>/dev/null || true
 }
 
 # Print a one-screen summary FIRST so a reader knows what to expect from

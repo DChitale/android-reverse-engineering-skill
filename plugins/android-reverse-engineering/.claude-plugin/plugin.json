@@ -7,6 +7,8 @@
   },
   "repository": "https://github.com/SimoneAvogadro/android-reverse-engineering-skill",
   "license": "Apache-2.0",
+  "supportUrl": "https://github.com/SimoneAvogadro/android-reverse-engineering-skill/issues/new",
+  "termsOfServiceUrl": "https://github.com/SimoneAvogadro/android-reverse-engineering-skill/blob/master/LICENSE",
   "keywords": ["android", "reverse-engineering", "apk", "jadx", "decompile", "api-extraction"],
   "skills": "./skills/",
   "commands": "./commands/"

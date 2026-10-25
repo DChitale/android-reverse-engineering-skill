@@ -1,33 +1,64 @@
 ---
 name: apk-reverse-engineering-mt-manager
-description: Reverse engineer Android APKs, inspect Dex/Smali bytecode, trace HTTP API endpoints (Retrofit, OkHttp, Ktor, Volley), follow UI-to-network call flows, inspect and disassemble native ELF (.so) binaries, reverse engineer Flutter apps (Dart AOT snapshot analysis with blutter, patching libapp.so with radare2), and patch/rebuild APKs using the MT Manager MCP server. Use when the user wants to decompile, inspect, reverse engineer, or patch Android packages, extract API endpoints, analyze native libraries, or analyze/patch Flutter apps and libapp.so. 中文触发词：反编译APK、安卓逆向、提取API、分析安卓应用、反编译安卓、逆向工程、追踪调用链、提取接口、修改APK、Flutter逆向、分析libapp.so、修改libapp.so、Dart快照分析
+description: Reverse engineer and crack Android apps via two toolchains, selected by asking the user for the app type up front. Java/Kotlin apps use the MT Manager MCP server for Dex/Smali inspection, HTTP API endpoint extraction (Retrofit, OkHttp, Ktor, Volley), UI-to-network call-flow tracing, native ELF (.so) disassembly, and radare2 lib patching with verified patch/rebuild. Flutter apps use a local Python pipeline with NO MT Manager — apktool decompile/rebuild (auto-installed), blutter + radare2 for Dart AOT libapp.so patching, and uber-apk-signer for signing. Use when the user wants to decompile, inspect, crack, reverse engineer, or patch Android packages, extract API endpoints, analyze native libraries, or analyze/patch Flutter apps and libapp.so. 中文触发词：反编译APK、安卓逆向、提取API、分析安卓应用、反编译安卓、逆向工程、追踪调用链、提取接口、修改APK、破解APP、Flutter逆向、分析libapp.so、修改libapp.so、Dart快照分析
 ---
 
-# Android Reverse Engineering with MT Manager MCP
+# Android Reverse Engineering — Java Route (MT Manager MCP) & Flutter Route (Local Pipeline)
 
-Comprehensive workflow for reverse engineering Android applications, extracting HTTP APIs, tracing call flows through Dex bytecode, analyzing native `.so` ELF binaries, and performing verified modifications using the **MT Manager MCP Server**.
+Two toolchains, selected up front by asking the user which kind of app it is:
+
+- **Java/Kotlin app** → **Route A**: the **MT Manager MCP Server** handles workspace triage, Dex/Smali inspection, API extraction, call-flow tracing, native ELF analysis, and verified patch/rebuild. Apps that require native lib patching: the user extracts the specific lib, radare2 patches it, and the patch is replayed through an MT Manager edit session.
+- **Flutter app** → **Route B**: a local **Python pipeline** — apktool (decompile/rebuild, auto-installed), blutter + radare2 (Dart AOT `libapp.so` analysis/patching), uber-apk-signer (signing). **No MT Manager MCP for Flutter targets.**
 
 ---
 
 ## Quick Navigation
 
-- [Phase 0: Workspace Setup & Fast Fingerprinting](#phase-0-workspace-setup--fast-fingerprinting)
-- [Phase 1: Manifest & Architecture Survey](#phase-1-manifest--architecture-survey)
-- [Phase 2: API & Network Endpoint Extraction](#phase-2-api--network-endpoint-extraction)
-- [Phase 3: Bytecode Call Flow & Cross-Reference Tracing](#phase-3-bytecode-call-flow--cross-reference-tracing)
-- [Phase 4: Native ELF (.so) Analysis & Disassembly](#phase-4-native-elf-so-analysis--disassembly)
-- [Phase 5: Flutter (Dart AOT) Analysis & libapp.so Patching](#phase-5-flutter-dart-aot-analysis--libappso-patching)
-- [Phase 6: Modification, Patching & APK Rebuilding](#phase-6-modification-patching--apk-rebuilding-optional)
-- [Phase 7: Structured Reporting](#phase-7-structured-reporting)
+- [Phase 0: App Type Selection (Ask First)](#phase-0-app-type-selection-ask-first)
+- **Route A — Java/Kotlin via MT Manager MCP**
+  - [Phase 1: Workspace Setup and Signature Inspection](#phase-1-workspace-setup-and-signature-inspection)
+  - [Phase 2: Manifest and Architecture Survey](#phase-2-manifest-and-architecture-survey)
+  - [Phase 3: API and Network Endpoint Extraction](#phase-3-api-and-network-endpoint-extraction)
+  - [Phase 4: Bytecode Call Flow and Cross-Reference Tracing](#phase-4-bytecode-call-flow-and-cross-reference-tracing)
+  - [Phase 5: Native ELF (.so) Analysis and Lib Patching with radare2](#phase-5-native-elf-so-analysis-and-lib-patching-with-radare2)
+  - [Phase 6: Modification, Patching and APK Rebuilding via Edit Sessions](#phase-6-modification-patching-and-apk-rebuilding-via-edit-sessions)
+- **Route B — Flutter via local pipeline (no MT Manager)**
+  - [Phase 7: Flutter Decompile, Patch and Rebuild Pipeline](#phase-7-flutter-decompile-patch-and-rebuild-pipeline)
+- [Phase 8: Structured Reporting](#phase-8-structured-reporting)
 - [References & Guides](#references--guides)
 
 ---
 
 ## Workflow
 
-### Phase 0: Workspace Setup & Fast Fingerprinting
+### Phase 0: App Type Selection (Ask First)
 
-Before deep-diving into code, open the APK into a read-only workspace, verify its signing profile, and determine the application framework.
+**Before touching any tool, ask the user which type of app it is:**
+
+> "Is the target app a **Java/Kotlin** (native Android) app or a **Flutter** app?"
+
+| Answer | Route |
+| :--- | :--- |
+| Java / Kotlin / "normal Android app" | **Route A** — Phases 1–6 (MT Manager MCP) |
+| Flutter | **Route B** — Phase 7 (local apktool pipeline, no MT Manager) |
+
+If the user is unsure, detect it locally (no MCP needed) by listing the APK's zip entries (`python -c "import zipfile; [print(n) for n in zipfile.ZipFile('target.apk').namelist()]"` or `unzip -l target.apk`):
+
+| Marker Detected | Type | Route / Implication |
+| :--- | :--- | :--- |
+| `lib/*/libapp.so` + `libflutter.so`, or `assets/flutter_assets/` | **Flutter** | Route B — Dex only holds the thin `io.flutter` launcher; logic is in `libapp.so`. |
+| `assets/index.android.bundle` | **React Native** | Route A for the wrapper; business logic is in the Hermes/JS bundle — extract and inspect separately. |
+| `assets/www/index.html` | **Cordova / Capacitor** | Route A for the wrapper; inspect HTML/JS under `assets/www/`. |
+| `assemblies/`, `libmonosgen*.so` | **Xamarin / .NET MAUI** | Route A; logic compiled into .NET DLL assemblies. |
+| None of the above | **Native Java/Kotlin** | Route A — full Dex/Smali reverse engineering applies. |
+
+Both routes finish at **Phase 8: Structured Reporting**.
+
+---
+
+### Route A: Java or Kotlin Apps via MT Manager MCP
+
+#### Phase 1: Workspace Setup and Signature Inspection
 
 #### 1. Open the Workspace
 Always begin by opening the target APK using `mt_apk_workspace_open`:
@@ -49,24 +80,11 @@ Always begin by opening the target APK using `mt_apk_workspace_open`:
 #### 2. Signature & Metadata Inspection
 Call `mt_apk_read_signature(workspaceId=...)` to inspect certificate digests, validity range, issuer, and signature schemes (v1, v2, v3).
 
-#### 3. Fast Framework Fingerprinting
-Check entry paths to identify non-native frameworks (Flutter, React Native, Cordova, Xamarin):
-- Call `mt_apk_list(workspaceId=..., view="zip_entries", prefix="lib/", limit=200)`
-- Call `mt_apk_list(workspaceId=..., view="zip_entries", prefix="assets/", limit=200)`
-
-| Marker Detected | Architecture | Implication |
-| :--- | :--- | :--- |
-| `lib/libflutter.so`, `assets/flutter_assets/` | **Flutter** | Core logic lives compiled in `libapp.so`, not Dex. Pivot to [Phase 5 (Flutter/Dart AOT)](#phase-5-flutter-dart-aot-analysis--libappso-patching); Phases 1–3 only expose the launcher wrapper. |
-| `assets/index.android.bundle` | **React Native** | Logic is in Hermes/JavaScript bundle. Extract and inspect with file tools. |
-| `assets/www/index.html` | **Cordova / Capacitor** | Hybrid web application. Inspect HTML/JS assets under `assets/www/`. |
-| `assemblies/`, `libmonosgen*.so` | **Xamarin / .NET MAUI** | Logic compiled into .NET DLL assemblies. |
-| No framework markers | **Native Java/Kotlin** | Full Dex/Smali reverse engineering applies directly. |
-
 ---
 
-### Phase 1: Manifest & Architecture Survey
+#### Phase 2: Manifest and Architecture Survey
 
-#### 1. Read Decoded `AndroidManifest.xml`
+##### 1. Read Decoded `AndroidManifest.xml`
 Read the binary manifest decoded automatically as clean XML via `mt_apk_read_text`:
 
 ```json
@@ -88,7 +106,7 @@ Identify:
 - **Exported Components**: Activities, Services, and Receivers with `android:exported="true"`.
 - **Permissions**: `INTERNET`, `ACCESS_NETWORK_STATE`, storage, and custom permissions.
 
-#### 2. Survey Package Structure
+##### 2. Survey Package Structure
 Page through declared classes using `mt_apk_list`:
 
 ```json
@@ -105,11 +123,11 @@ Distinguish first-party application packages from third-party libraries (e.g., `
 
 ---
 
-### Phase 2: API & Network Endpoint Extraction
+#### Phase 3: API and Network Endpoint Extraction
 
 Locate HTTP clients, API endpoints, headers, and configuration constants.
 
-#### 1. Discover Endpoints via `mt_apk_search`
+##### 1. Discover Endpoints via `mt_apk_search`
 Perform targeted searches across Dex and resources:
 
 ```json
@@ -133,7 +151,7 @@ High-signal queries:
 - **OkHttp Builders**: `Lokhttp3/Request$Builder;`, `Lokhttp3/HttpUrl$Builder;`
 - **Ktor (Kotlin)**: `Lio/ktor/client/HttpClient;`, `BuildersKt;->get`
 
-#### 2. Read Class Outlines
+##### 2. Read Class Outlines
 When an API interface is located (e.g. `dex_class:Lcom/example/api/UserApi;`), read its outline without downloading massive files:
 ```json
 // Example call: mt_apk_dex_read_class_outline
@@ -144,7 +162,7 @@ When an API interface is located (e.g. `dex_class:Lcom/example/api/UserApi;`), r
 ```
 Follow up with `mt_apk_read_text` on specific method locators to inspect path annotations and parameter types.
 
-#### 3. Extract Build Configurations
+##### 3. Extract Build Configurations
 Search for `BuildConfig` constants:
 ```json
 {
@@ -160,11 +178,11 @@ Read the matching `BuildConfig` classes to extract `BASE_URL`, environment hosts
 
 ---
 
-### Phase 3: Bytecode Call Flow & Cross-Reference Tracing
+#### Phase 4: Bytecode Call Flow and Cross-Reference Tracing
 
 Trace execution from UI entry points down to network requests using direct Dex bytecode cross-references.
 
-#### 1. Find Inbound References with `mt_apk_dex_xref`
+##### 1. Find Inbound References with `mt_apk_dex_xref`
 Query callers of any method, field, or class:
 
 ```json
@@ -180,10 +198,10 @@ Query callers of any method, field, or class:
 - Use `methodResolution="dispatch"` for virtual methods and interface implementations.
 - Use `methodResolution="exact"` for direct opcode reference equality.
 
-#### 2. Read Caller Bytecode
+##### 2. Read Caller Bytecode
 Inspect calling methods directly via `mt_apk_read_text(locator=refs[i].sourceLocator)` to see parameters, token additions, and encryption wrapping.
 
-#### 3. Traverse Upward to UI
+##### 3. Traverse Upward to UI
 Repeat cross-referencing to trace:
 $$\text{API Method} \longleftarrow \text{Repository} \longleftarrow \text{ViewModel / Presenter} \longleftarrow \text{Activity / Fragment}$$
 
@@ -191,10 +209,11 @@ $$\text{API Method} \longleftarrow \text{Repository} \longleftarrow \text{ViewMo
 
 ---
 
-### Phase 4: Native ELF (`.so`) Analysis & Disassembly
+#### Phase 5: Native ELF (.so) Analysis and Lib Patching with radare2
 
-When sensitive algorithms, cryptography, or licensing checks reside in native libraries:
+Some Java/Kotlin apps move license checks, cryptography, or anti-tamper logic into native libraries.
 
+**Analysis:**
 1. **Inspect ELF Header**:
    Call `mt_apk_native_inspect(locator="zip_entry:lib/arm64-v8a/libnative.so")` to determine architecture (ARM64, ARM32, x86_64) and section counts.
 2. **Enumerate Exported JNI Functions**:
@@ -206,41 +225,17 @@ When sensitive algorithms, cryptography, or licensing checks reside in native li
    - Build control-flow graphs with `mt_apk_native_analyze_control_flow`.
    - Find static callers and string references with `mt_apk_native_xref`.
 
+**When the lib actually needs patching (extract → r2 → replay):**
+1. **Ask the user to extract that specific lib from the APK** — tell them the exact zip entry path (e.g. `lib/arm64-v8a/libnative.so`) and have them pull it out (MT Manager file extraction, or `unzip target.apk "lib/arm64-v8a/libnative.so" -d extracted/`). Patch a real file on disk; never blind-patch inside the APK.
+2. **Patch the extracted lib with radare2**: keep a pristine copy (`cp libnative.so libnative.so.orig`), open with `r2 -w` (or `r2flutter -AAA` for Dart-style named analysis of ELF targets), apply **equal-length in-place overwrites only** (`wa nop` over a `bl`, `wa ret` for early return, `wx <hex>` for raw bytes), and verify with `radiff2 -C` that only the intended bytes changed.
+3. **Replay the verified patch into the APK** through an MT Manager edit session: `mt_apk_patch_bytes` on the original `zip_entry:` locator using file offsets plus `expectedHex` from the pristine copy (stale-write guard), or `mt_apk_native_patch_instructions` with `addressKind="virtual"` for simple instruction overwrites.
+4. **Check & build**: `mt_apk_session_check(workspaceId=..., editSessionId=..., runBuildChecks=true)` → `mt_apk_build(workspaceId=..., editSessionId=..., sign=true, outputName="output_patched.apk")`.
+
 *See native instructions and examples in [references/native-reverse-engineering.md](references/native-reverse-engineering.md).*
 
 ---
 
-### Phase 5: Flutter (Dart AOT) Analysis & `libapp.so` Patching
-
-When Phase 0 detects Flutter, Dex analysis only exposes the thin `io.flutter` launcher — the business logic (API clients, license checks, feature gates) is compiled into `lib/arm64-v8a/libapp.so`, a Dart AOT snapshot inside an ELF container, executed by `libflutter.so`.
-
-#### 0. Required Inputs: `libs` and `out` Folder Paths
-**When the user asks to reverse engineer a Flutter app, ask for both folder paths before starting any analysis — never guess or assume them:**
-- **`out`** — the blutter-decompiled `libapp.so` output (must contain `asm/` + `pp.txt`); this is what the analysis reads to find relevant functions.
-- **`libs`** — the folder with the original `libapp.so` + `libflutter.so` (extracted `lib/arm64-v8a`); this is the binary radare2/r2flutter will edit.
-Both must come from the same APK/build. If either is missing, tell the user to run blutter externally:
-`python3 blutter.py <libs> <out>` (Android arm64 only; auto-detects the Dart version from `libflutter.so`).
-
-#### 1. Method 1 — Dart AOT Snapshot Internals
-Understand the target before touching it: the four exported snapshot symbols, `.text` machine code vs `.rodata` clustered heap data, ARM64 register conventions (`r26` = THR, `r27` = object pool), and why library/class/function names survive release builds.
-
-#### 2. Method 2 — Manual Assembly-Level Analysis
-Fingerprint the exact Dart version from `libflutter.so` (`Dart VM version` string → commit hash), recover the package structure from library URIs, and recognize AOT codegen patterns (PP-relative constant loads, Smi tagging, class-ID type checks, inline caches).
-
-#### 3. Find Relevant Functions in the `out` Folder
-Analyze the blutter output against the user's goal (license checks, SSL pinning, API endpoints, feature gates): grep `asm/` for `Class_method` symbol names and `pp.txt` for URLs/tokens; function headers carry `addr: 0x...` virtual addresses inside `libapp.so`; resolve `[pp+0xNN]` annotations via `pp.txt`/`objs.txt`.
-
-#### 4. Edit `<libs>/libapp.so` with radare2 / r2flutter
-Take the original binary from the user-provided `libs` folder (keep a pristine copy), open with `r2 -A` — or run `r2flutter -AAA` after installing the [r2flutter](https://github.com/radareorg/r2flutter) plugin to recover Dart function/class names directly in the session — seek to the address found in `out/asm/`, and patch in write mode (`wa nop` over a `bl`, `wa ret` for early return, `wx <hex>` for raw bytes) — **equal-length in-place overwrites only**; never shift snapshot bytes. Verify with `radiff2 -C`.
-
-#### 5. Re-inject & Rebuild
-Replay the radare2 patch as `mt_apk_patch_bytes` ranges (or `mt_apk_native_patch_instructions` with `addressKind="virtual"`) on `zip_entry:lib/arm64-v8a/libapp.so` inside an edit session, then `mt_apk_build(sign=true)`.
-
-*Full guide — snapshot format tables, codegen patterns, radare2 recipes, and re-injection options — in [references/flutter-reverse-engineering.md](references/flutter-reverse-engineering.md).*
-
----
-
-### Phase 6: Modification, Patching & APK Rebuilding (Optional)
+#### Phase 6: Modification, Patching and APK Rebuilding via Edit Sessions
 
 When the goal includes modifying or verifying behavior changes:
 
@@ -256,12 +251,71 @@ When the goal includes modifying or verifying behavior changes:
    Call `mt_apk_session_check(workspaceId=..., editSessionId=..., runBuildChecks=true)` to test Smali compilation and Dex merging.
 4. **Compile & Sign**:
    Call `mt_apk_build(workspaceId=..., editSessionId=..., sign=true, outputName="output_patched.apk")`.
+5. **Record Every Change for the Final Report**:
+   As edits are applied, keep a running list of each one — target locator, before → after values, tool used, and the reason. Phase 8 requires this as a detailed changelog table in the final output.
 
 ---
 
-### Phase 7: Structured Reporting
+### Route B: Flutter Apps via Local Pipeline (No MT Manager)
 
-Deliver reverse engineering findings in two tiers:
+**Do not use the MT Manager MCP server for Flutter targets.** The whole APK lifecycle runs through the bundled script [`scripts/flutter_apk_pipeline.py`](scripts/flutter_apk_pipeline.py) (stdlib-only Python 3): apktool for decompile/rebuild, uber-apk-signer for zipalign + sign, with automatic tool installation.
+
+#### Phase 7: Flutter Decompile, Patch and Rebuild Pipeline
+
+**Step 1 — Decompile** (the script asks for the APK path when it is not given):
+```bash
+python scripts/flutter_apk_pipeline.py decompile <app.apk>
+```
+- Verifies **Java 8+** is available, then resolves apktool in order: `PATH` → `APKTOOL_JAR` env → `tools/apktool.jar`. If apktool is not installed, the latest release is auto-downloaded from [iBotPeaches/Apktool releases](https://github.com/iBotPeaches/Apktool/releases).
+- Output: `<name>_decoded/` containing smali, decoded resources, and `lib/arm64-v8a/libapp.so` + `libflutter.so`.
+
+**Step 2 — Analyze with blutter** (external, user-run):
+Ask for the blutter `out` folder if the user has not provided one — never guess or fabricate it. `libs` defaults to `<name>_decoded/lib/arm64-v8a` from the decompile step. If the user has not run blutter yet:
+`python3 blutter.py <name>_decoded/lib/arm64-v8a <out>` (Android arm64 only; blutter auto-detects the Dart version from `libflutter.so`). Validate: `out/` must contain `asm/` and `pp.txt`.
+
+**Step 3 — Patch `libapp.so` with radare2**:
+Grep `out/asm/` for `Class_method` symbols and `out/pp.txt` for URLs/tokens — function headers carry `addr: 0x...` virtual addresses inside `libapp.so`. Open the decoded lib with `r2 -w` (optionally `r2flutter -AAA` for named navigation) and patch with **equal-length in-place overwrites only** (`wa nop` over a `bl`, `wa ret` for early return, `wx <hex>`); never shift snapshot bytes. Verify with `radiff2 -C`.
+
+**Step 4 — Rebuild the APK**:
+```bash
+python scripts/flutter_apk_pipeline.py rebuild <name>_decoded
+```
+Runs `apktool b` → produces `<name>_rebuilt.apk` next to the decoded folder.
+
+**Step 5 — Sign with uber-apk-signer**:
+```bash
+python scripts/flutter_apk_pipeline.py sign <name>_rebuilt.apk
+```
+- The script **asks the user for the uber-apk-signer jar path first**; if it is not available, the latest release is auto-downloaded from [patrickfav/uber-apk-signer releases](https://github.com/patrickfav/uber-apk-signer/releases) ([project page](https://favr.dev/opensource/uber-apk-signer/)).
+- Zipaligns and debug-signs in one pass → `<name>_rebuilt-aligned-signed.apk`.
+
+Launcher-wrapper tweaks (rare for Flutter): edit smali/resources directly under `<name>_decoded/` before the rebuild.
+
+*Full guide — snapshot format tables, codegen patterns, radare2 recipes — in [references/flutter-reverse-engineering.md](references/flutter-reverse-engineering.md).*
+
+---
+
+### Phase 8: Structured Reporting
+
+Deliver reverse engineering findings in two tiers — plus a **mandatory modification changelog** whenever the APK or any of its binaries was changed:
+
+#### Modification Changelog Table (Mandatory When Any Change Was Made)
+Whenever any modification was applied — Smali/code edits (`mt_apk_edit_text` or direct edits in the apktool-decoded folder), native instruction or string patches (`mt_apk_native_patch_instructions` / `mt_apk_native_patch_string`), resource edits (`mt_apk_resource_edit` / `mt_apk_resource_add`), raw byte patches (`mt_apk_patch_bytes`), radare2 edits to `libapp.so` or to an extracted native lib, or manifest tweaks — the **final message to the user must contain a detailed table of every change and why it was made**. This is a required deliverable, not an intermediate note: the session is not complete until this table appears in the final output alongside the findings tables.
+
+One row per atomic change:
+
+| # | Target (File / Class / Address) | Change Type | Before → After | Why (Rationale) | Verified By |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 | `dex_method:Lcom/example/license/LicenseCheck;->isValid()Z` | Smali edit (`mt_apk_edit_text`) | `const/4 v0, 0x0` → `const/4 v0, 0x1` | Force `isValid()` to return `true` so the patched build runs without the server-side license check | `mt_apk_session_check` passed; re-read of smali confirms the edit |
+| 2 | `lib/arm64-v8a/libapp.so` @ `0x1a2b40` | Native patch (radare2 `wa nop` on the decoded lib) | `bl 0x1a2c10` (`_LicenseValidator@validate`) → `nop` (equal-length, 4 bytes) | Skip the Dart AOT license gate invoked at startup; NOP keeps snapshot offsets stable | `radiff2 -C` shows only this hunk; rebuilt + signed APK launches trial features |
+| 3 | `res/values/strings.xml` → `server_host` | Resource edit (`mt_apk_resource_edit`) | `https://prod.example.com` → `https://staging.example.com` | Redirect API traffic to the staging environment for safe testing | Re-read of resource confirms new value; rebuilt APK contacts staging host |
+
+Changelog rules:
+- **One row per atomic change.** Never summarize multiple edits into a single row ("various smali edits" is unacceptable).
+- **Why must give the reasoning, not restate the what**: "bypass license validation so the app starts offline", not "changed 0x0 to 0x1".
+- **Before → After shows concrete original and new values** (instruction, string, resource entry, or byte range) so the user can audit or replay the patch elsewhere.
+- **Include reverted or abandoned attempts**, marked as such in *Why* (e.g. "attempted `wa ret`, reverted — broke subsequent initialization"). The user needs to know what was tried.
+- **Omit the table entirely when nothing was modified** — it applies only to sessions that changed the APK or its binaries.
 
 #### Tier 1: Flat Inventory Table (Always)
 A consolidated table covering every discovered endpoint:

@@ -16,9 +16,9 @@ Analyzing and patching **Flutter** applications. A Flutter APK keeps almost no l
 
 ## 1. Required Inputs: `libs` and `out` Folder Paths (ask the user first)
 
-> **Rule:** When the user asks to reverse engineer a Flutter app, ask for **both** folder paths before starting any work — do not guess, assume, or fabricate either one:
+> **Rule:** When the user asks to reverse engineer a Flutter app, ask for the **`out`** folder path before starting any work — do not guess, assume, or fabricate it:
 > 1. **`out`** — the blutter decompilation of the app's `libapp.so`. This is what the analysis reads to find relevant functions.
-> 2. **`libs`** — the folder extracted from the APK containing the original `libapp.so` and `libflutter.so` (e.g. `.../apk_out/lib/arm64-v8a`). This is the binary that radare2/r2flutter will later edit.
+> 2. **`libs`** — the folder containing the original `libapp.so` and `libflutter.so`. In the standard Route B pipeline this is simply `<name>_decoded/lib/arm64-v8a` from the apktool decompile step; otherwise it is a folder the user extracted from the APK.
 >
 > Both must come from the same APK/build.
 
@@ -28,11 +28,11 @@ What to tell the user if they have not run blutter yet:
 
 ```bash
 # Target: Android arm64 only (blutter does not support arm32 or iOS)
-python3 blutter.py <libs> <out>     # e.g. python3 blutter.py apk_out/lib/arm64-v8a blutter_out
+python3 blutter.py <libs> <out>     # e.g. python3 blutter.py app_decoded/lib/arm64-v8a blutter_out
 ```
 
 - blutter auto-detects the Dart version from `libflutter.so` and builds the matching engine — do not substitute a different Dart version.
-- If the user has neither folder yet, `libs` can be extracted from the APK via `mt_zip_extract` (or `unzip target.apk -d apk_out "lib/arm64-v8a/*"`).
+- If the APK has not been decompiled yet, run the pipeline script first (`flutter_apk_pipeline.py decompile <app.apk>`); `libs` is then `<name>_decoded/lib/arm64-v8a`. A raw `unzip target.apk -d apk_out "lib/arm64-v8a/*"` also works.
 - Obfuscated apps are only partially supported (many functions stay unnamed).
 
 **Validation checklist once the user provides the paths:**
@@ -143,7 +143,7 @@ Grep-able identification patterns (r2 `/a` or `pd` scan): Dart function prologue
    ```
 3. **Read the function** in `asm/<lib>/<file>_<Class>-<method>.dart` — each function header carries `addr: 0x...`, the **virtual address inside `libapp.so`**, ready to seek to in radare2. `[pp+0xNN]` annotations resolve to `pp.txt` entries (API URLs, asset paths, flags).
 4. **Harvest reference idioms** before patching: find a known `return true` / `return false` function in the same snapshot and note how it loads the boolean singleton (`ldr x0, [THR, #off]` or a PP-relative load). Offsets vary per Dart version — copying a verified sibling pattern is safer than guessing.
-5. **Record** `(virtual address, original bytes, intended patch)` — this becomes the radare2 session and, later, the `mt_apk_patch_bytes` ranges.
+5. **Record** `(virtual address, original bytes, intended patch)` — this becomes the radare2 session applied to the decoded `<libs>/libapp.so`.
 
 `blutter_frida.js` (if generated) provides a runtime hooking template for dynamic cross-checking of the static findings.
 
@@ -258,37 +258,26 @@ r2 -qc 'pd 8 @ 0x7abc000' libapp.so        # re-read the patched window
 radiff2 -C libapp.so.orig libapp.so        # confirm ONLY intended bytes changed
 ```
 
-Converting addresses for other tools: r2 seeks virtually. `iS` prints the section table (`vaddr` vs file `offset`) — for `libapp.so` they are typically identical, but verify before feeding file offsets to `mt_apk_patch_bytes`.
+Converting addresses for other tools: r2 seeks virtually. `iS` prints the section table (`vaddr` vs file `offset`) — for `libapp.so` they are typically identical, but verify before translating a virtual address into a file offset.
 
 ---
 
-## 6. Re-injecting the Patch & Rebuilding the APK
+## 6. Rebuilding and Signing the Patched APK (No MT Manager)
 
-Three supported paths (all end in `mt_apk_build` for sign + repack):
+Flutter targets never touch the MT Manager MCP server. After the radare2 patch on `<name>_decoded/lib/arm64-v8a/libapp.so` is verified with `radiff2 -C`, finish with the bundled pipeline script ([`scripts/flutter_apk_pipeline.py`](../scripts/flutter_apk_pipeline.py), stdlib-only Python 3):
 
-### Option A — Replay ranges into the APK workspace (recommended)
-Translate the r2 session into `mt_apk_patch_bytes` ranges on the original zip entry (`byteOffset` = file offset inside the entry; `expectedHex` = pristine bytes as a stale-write guard):
+1. **Rebuild** the decoded folder back into an APK (runs `apktool b`):
+   ```bash
+   python scripts/flutter_apk_pipeline.py rebuild <name>_decoded
+   # -> <name>_rebuilt.apk next to the decoded folder
+   ```
+2. **Sign** with [uber-apk-signer](https://favr.dev/opensource/uber-apk-signer/) (zipalign + debug-sign in one pass):
+   ```bash
+   python scripts/flutter_apk_pipeline.py sign <name>_rebuilt.apk
+   ```
+   - The script **asks the user for the uber-apk-signer jar path first**; if it is not available, the latest release is auto-downloaded from <https://github.com/patrickfav/uber-apk-signer/releases> into `tools/`.
+   - Result: `<name>_rebuilt-aligned-signed.apk` next to the input.
 
-```json
-{
-  "workspaceId": "<workspaceId>",
-  "editSessionId": "<editSessionId>",
-  "locator": "zip_entry:lib/arm64-v8a/libapp.so",
-  "patches": [
-    { "byteOffset": 8038400, "expectedHex": "94f7ffff", "replacementHex": "1f2003d6" }
-  ]
-}
-```
+The script resolves apktool itself (`PATH` → `APKTOOL_JAR` env → `tools/apktool.jar`, auto-downloading from <https://github.com/iBotPeaches/Apktool/releases> when missing) and verifies Java 8+ is installed. Smali/resource tweaks to the launcher wrapper can be edited directly under `<name>_decoded/` before the rebuild.
 
-### Option B — Assemble instructions directly (no r2 round-trip)
-For simple overwrites, `mt_apk_native_patch_instructions` works on `libapp.so` inside the APK with `addressKind="virtual"` — the engine assembles, checks alignment, and NOP-pads.
-
-### Option C — Keep the r2-edited file
-Patch the extracted copy on disk equivalently with `mt_file_patch_bytes`, or swap the whole entry in a local APK copy with `mt_zip_update` (replacement preserves the entry's compression method; the result still needs signing).
-
-Then:
-
-1. `mt_apk_session_check(workspaceId=..., editSessionId=..., runBuildChecks=true)`
-2. `mt_apk_build(workspaceId=..., editSessionId=..., sign=true, outputName="flutter_patched.apk")`
-
-> **Patch hygiene:** Dart AOT snapshots do not checksum themselves, but some apps add native integrity checks on `libapp.so` (hash comparison in `libflutter.so` sibling code or a Java-side guard). If the patched build crashes on launch, search for such verification (`strings`/`mt_apk_search` for the `.so` name, CRC/hash references) and neutralize it too.
+> **Patch hygiene:** Dart AOT snapshots do not checksum themselves, but some apps add native integrity checks on `libapp.so` (hash comparison in `libflutter.so` sibling code or a Java-side guard). If the patched build crashes on launch, search for such verification (`strings`/`grep` for the `.so` name, CRC/hash references) and neutralize it too.

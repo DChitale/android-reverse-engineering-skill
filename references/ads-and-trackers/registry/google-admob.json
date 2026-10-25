@@ -1,0 +1,141 @@
+{
+  "$schema": "./_schema.json",
+  "sdk_id": "google-admob",
+  "display_name": "Google AdMob",
+  "description": "Google Mobile Ads SDK",
+  "vendor": "Google",
+  "category": "ads",
+  "known_versions": ["24.4.0"],
+  "packages": [
+    "com.google.android.gms.ads"
+  ],
+  "obfuscation": {
+    "public_api": "readable",
+    "internals": "obfuscated",
+    "internal_prefix": "zz"
+  },
+  "targets": {
+    "entry_points": [
+      {
+        "class": "com.google.android.gms.ads.MobileAds",
+        "methods": [
+          {
+            "name": "initialize",
+            "signature": "(Landroid/content/Context;)V",
+            "stub": "return-void",
+            "note": "Main SDK init — disables entire ad pipeline"
+          },
+          {
+            "name": "initialize",
+            "signature": "(Landroid/content/Context;Lcom/google/android/gms/ads/initialization/OnInitializationCompleteListener;)V",
+            "stub": "return-void",
+            "note": "Init with callback"
+          }
+        ]
+      }
+    ],
+    "ad_operations": [
+      {
+        "class": "com.google.android.gms.ads.AdLoader",
+        "methods": [
+          { "name": "loadAd", "signature": "*", "stub": "return-void" },
+          { "name": "loadAds", "signature": "*", "stub": "return-void" }
+        ]
+      },
+      {
+        "class": "com.google.android.gms.ads.rewarded.RewardedAd",
+        "methods": [
+          { "name": "load", "signature": "*", "stub": "return-void" }
+        ]
+      },
+      {
+        "class": "com.google.android.gms.ads.interstitial.InterstitialAd",
+        "methods": [
+          { "name": "load", "signature": "*", "stub": "return-void" }
+        ]
+      },
+      {
+        "class": "com.google.android.gms.ads.appopen.AppOpenAd",
+        "methods": [
+          { "name": "load", "signature": "*", "stub": "return-void" }
+        ]
+      },
+      {
+        "class": "com.google.android.gms.ads.AdView",
+        "methods": [
+          { "name": "loadAd", "signature": "*", "stub": "return-void" },
+          { "name": "resume", "signature": "*", "stub": "return-void" },
+          { "name": "pause", "signature": "*", "stub": "return-void" },
+          { "name": "destroy", "signature": "*", "stub": "return-void" }
+        ]
+      },
+      {
+        "class": "com.google.android.gms.ads.nativead.NativeAd",
+        "methods": [
+          { "name": "destroy", "signature": "*", "stub": "return-void" }
+        ]
+      },
+      {
+        "class": "com.google.android.gms.ads.rewarded.RewardedInterstitialAd",
+        "methods": [
+          { "name": "load", "signature": "*", "stub": "return-void" }
+        ]
+      }
+    ],
+    "deep_patterns": [
+      {
+        "package_glob": "com.google.android.gms.internal.ads.**",
+        "rule": "stub_all_concrete",
+        "note": "Internal obfuscated classes (zz* prefix) — safe but version-dependent"
+      }
+    ]
+  },
+  "manifest_components": [
+    {
+      "type": "provider",
+      "class": "com.google.android.gms.ads.MobileAdsInitProvider",
+      "action": "disable",
+      "note": "Auto-init ContentProvider — starts SDK before Application.onCreate"
+    },
+    {
+      "type": "activity",
+      "class": "com.google.android.gms.ads.AdActivity",
+      "action": "disable",
+      "note": "Fullscreen ad display activity"
+    },
+    {
+      "type": "service",
+      "class": "com.google.android.gms.ads.AdService",
+      "action": "disable",
+      "note": "Background ad service"
+    }
+  ],
+  "protected_patterns": [
+    {
+      "pattern": "*.getActivity()*",
+      "reason": "Returns Activity reference — null causes NPE"
+    },
+    {
+      "pattern": "*.getApplicationContext()*",
+      "reason": "Returns Context — null causes NPE"
+    }
+  ],
+  "detection": {
+    "exclude_packages": ["com.google.android.gms.ads.identifier"],
+    "namespace_roots": [
+      "com.google.ads.mediation",
+      "com.google.android.gms.internal.ads"
+    ],
+    "adapter_packages": ["com.google.ads.mediation"],
+    "marker_classes": ["com.google.android.gms.ads.MobileAds"],
+    "apis": [
+      { "class": "com.google.android.gms.ads.MobileAds", "methods": ["setRequestConfiguration"], "role": "config" },
+      { "class": "com.google.android.gms.ads.RequestConfiguration$Builder", "methods": ["setTagForChildDirectedTreatment", "setTagForUnderAgeOfConsent", "setMaxAdContentRating"], "role": "consent" },
+      { "class": "com.google.android.gms.ads.AdLoader$Builder", "methods": ["<init>"], "role": "load" }
+    ],
+    "id_prefixes": [
+      { "prefix": "ca-app-pub-", "label": "admob_id" }
+    ],
+    "note": "gms.ads.identifier (AdvertisingIdClient, used by every SDK) is not AdMob evidence: alone it is at most LOW (HeartStar). com.google.ads as a whole is not a namespace: it also holds the IMA SDK (interactivemedia). The APPLICATION_ID / AD_MANAGER_APP meta-data start with the identity root and match by prefix."
+  }
+}

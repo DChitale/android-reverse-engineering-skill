@@ -161,4 +161,4 @@ For critical endpoints (Authentication, Payment, Order creation, Sensitive logic
 - **Call Chain**: `LoginActivity$onCreate$1 -> LoginViewModel.submitLogin -> AuthRepository.login -> AuthApi.login`
 ```
 
-If the session modified the APK (Dex/Smali, resources, native libraries, or `libapp.so`), the final output must additionally include the mandatory **Modification Changelog Table** defined in Phase 8 of the SKILL — one row per change with Target, Change Type, Before → After, Why, and how it was Verified.
+If the session modified the APK (Dex/Smali, resources, native libraries, or `libapp.so`), the final output must additionally include the mandatory **Modification Changelog Table** defined in Phase 9 of the SKILL — one row per change with Target, Change Type, Before → After, Why, and how it was Verified.

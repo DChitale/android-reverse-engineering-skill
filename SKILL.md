@@ -1,13 +1,13 @@
 ---
 name: apk-reverse-engineering-mt-manager
-description: Reverse engineer and crack Android apps via two toolchains, selected by asking the user for the app type up front. Java/Kotlin apps use the MT Manager MCP server for Dex/Smali inspection, HTTP API endpoint extraction (Retrofit, OkHttp, Ktor, Volley), UI-to-network call-flow tracing, native ELF (.so) disassembly, and radare2 lib patching with verified patch/rebuild. Flutter apps use a local Python pipeline with NO MT Manager — apktool decompile/rebuild (auto-installed), blutter + radare2 for Dart AOT libapp.so patching, and uber-apk-signer for signing. Use when the user wants to decompile, inspect, crack, reverse engineer, or patch Android packages, extract API endpoints, analyze native libraries, or analyze/patch Flutter apps and libapp.so. 中文触发词：反编译APK、安卓逆向、提取API、分析安卓应用、反编译安卓、逆向工程、追踪调用链、提取接口、修改APK、破解APP、Flutter逆向、分析libapp.so、修改libapp.so、Dart快照分析
+description: Reverse engineer and crack Android apps via two toolchains, selected by asking the user for the app type up front. Java/Kotlin apps use the MT Manager MCP server for Dex/Smali inspection, HTTP API endpoint extraction (Retrofit, OkHttp, Ktor, Volley), UI-to-network call-flow tracing, native ELF (.so) disassembly, radare2 lib patching with verified patch/rebuild, and ad/tracker SDK detection & removal (stub AdMob, Unity, IronSource, Firebase Analytics, Adjust, AppsFlyer and 50+ more via the SDK registry). Flutter apps use a local Python pipeline with NO MT Manager — apktool decompile/rebuild (auto-installed), blutter + radare2 for Dart AOT libapp.so patching, and uber-apk-signer for signing. Use when the user wants to decompile, inspect, crack, reverse engineer, or patch Android packages, extract API endpoints, analyze native libraries, remove ads, remove trackers, strip telemetry, neutralize SDKs, or analyze/patch Flutter apps and libapp.so. 中文触发词：反编译APK、安卓逆向、提取API、分析安卓应用、反编译安卓、逆向工程、追踪调用链、提取接口、修改APK、破解APP、去广告、移除广告、去除追踪器、移除SDK、隐私分析、Flutter逆向、分析libapp.so、修改libapp.so、Dart快照分析
 ---
 
 # Android Reverse Engineering — Java Route (MT Manager MCP) & Flutter Route (Local Pipeline)
 
 Two toolchains, selected up front by asking the user which kind of app it is:
 
-- **Java/Kotlin app** → **Route A**: the **MT Manager MCP Server** handles workspace triage, Dex/Smali inspection, API extraction, call-flow tracing, native ELF analysis, and verified patch/rebuild. Apps that require native lib patching: the user extracts the specific lib, radare2 patches it, and the patch is replayed through an MT Manager edit session.
+- **Java/Kotlin app** → **Route A**: the **MT Manager MCP Server** handles workspace triage, Dex/Smali inspection, API extraction, call-flow tracing, native ELF analysis, and verified patch/rebuild. Apps that require native lib patching: the user extracts the specific lib, radare2 patches it, and the patch is replayed through an MT Manager edit session. Ad/tracker SDK removal is built in (Phase 6).
 - **Flutter app** → **Route B**: a local **Python pipeline** — apktool (decompile/rebuild, auto-installed), blutter + radare2 (Dart AOT `libapp.so` analysis/patching), uber-apk-signer (signing). **No MT Manager MCP for Flutter targets.**
 
 ---
@@ -21,10 +21,11 @@ Two toolchains, selected up front by asking the user which kind of app it is:
   - [Phase 3: API and Network Endpoint Extraction](#phase-3-api-and-network-endpoint-extraction)
   - [Phase 4: Bytecode Call Flow and Cross-Reference Tracing](#phase-4-bytecode-call-flow-and-cross-reference-tracing)
   - [Phase 5: Native ELF (.so) Analysis and Lib Patching with radare2](#phase-5-native-elf-so-analysis-and-lib-patching-with-radare2)
-  - [Phase 6: Modification, Patching and APK Rebuilding via Edit Sessions](#phase-6-modification-patching-and-apk-rebuilding-via-edit-sessions)
+  - [Phase 6: Ads and Tracker SDK Detection and Neutralization](#phase-6-ads-and-tracker-sdk-detection-and-neutralization)
+  - [Phase 7: Modification, Patching and APK Rebuilding via Edit Sessions](#phase-7-modification-patching-and-apk-rebuilding-via-edit-sessions)
 - **Route B — Flutter via local pipeline (no MT Manager)**
-  - [Phase 7: Flutter Decompile, Patch and Rebuild Pipeline](#phase-7-flutter-decompile-patch-and-rebuild-pipeline)
-- [Phase 8: Structured Reporting](#phase-8-structured-reporting)
+  - [Phase 8: Flutter Decompile, Patch and Rebuild Pipeline](#phase-8-flutter-decompile-patch-and-rebuild-pipeline)
+- [Phase 9: Structured Reporting](#phase-9-structured-reporting)
 - [References & Guides](#references--guides)
 
 ---
@@ -39,8 +40,8 @@ Two toolchains, selected up front by asking the user which kind of app it is:
 
 | Answer | Route |
 | :--- | :--- |
-| Java / Kotlin / "normal Android app" | **Route A** — Phases 1–6 (MT Manager MCP) |
-| Flutter | **Route B** — Phase 7 (local apktool pipeline, no MT Manager) |
+| Java / Kotlin / "normal Android app" | **Route A** — Phases 1–7 (MT Manager MCP) |
+| Flutter | **Route B** — Phase 8 (local apktool pipeline, no MT Manager) |
 
 If the user is unsure, detect it locally (no MCP needed) by listing the APK's zip entries (`python -c "import zipfile; [print(n) for n in zipfile.ZipFile('target.apk').namelist()]"` or `unzip -l target.apk`):
 
@@ -52,7 +53,7 @@ If the user is unsure, detect it locally (no MCP needed) by listing the APK's zi
 | `assemblies/`, `libmonosgen*.so` | **Xamarin / .NET MAUI** | Route A; logic compiled into .NET DLL assemblies. |
 | None of the above | **Native Java/Kotlin** | Route A — full Dex/Smali reverse engineering applies. |
 
-Both routes finish at **Phase 8: Structured Reporting**.
+Both routes finish at **Phase 9: Structured Reporting**.
 
 ---
 
@@ -235,7 +236,49 @@ Some Java/Kotlin apps move license checks, cryptography, or anti-tamper logic in
 
 ---
 
-#### Phase 6: Modification, Patching and APK Rebuilding via Edit Sessions
+#### Phase 6: Ads and Tracker SDK Detection and Neutralization
+
+When the goal is **removing ads, analytics, or trackers** from a Java/Kotlin app. Everything here is driven by the SDK registry and pattern guides in [references/ads-and-trackers/](references/ads-and-trackers/README.md) — 50+ ad / tracker / consent SDKs with exact package names, stub targets, and manifest components.
+
+**Step 0 — Responsible-use gate (mandatory, before any patching):**
+Warn the user and get explicit confirmation: stubbed `getInstance()`-style methods return `null` and can crash the app; features gated behind ads/analytics (rewarded content, A/B-tested UI) break; the rebuilt APK loses its original signature (Play Integrity fails, no Play-store updates over it); modifying an APK may violate its EULA and SDK provider terms — the user must have authorization. Always show the dry-run plan (Step 2) and get approval **before** applying edits.
+
+**Step 1 — Detect (registry sweep):**
+1. List registry entries via `mt_apk_list(view="dex_classes")` and match the app's packages against each entry's `packages` list (literal prefix match, e.g. `com.google.android.gms.ads`, `com.appsflyer`, `com.ironsource`).
+2. Sweep smali per candidate package: `mt_apk_search(target="smali", query="Lcom/google/android/gms/ads/", queryType="literal")` — HIGH confidence needs SDK classes plus the entry's marker class; package-only or manifest-only is MEDIUM; app-code references, endpoint domains, or ID prefixes alone (`ca-app-pub-…`) are LOW.
+3. Read `axml:AndroidManifest.xml` and match activities/services/receivers/providers/meta-data against each entry's `manifest_components` and `detection.manifest_names`.
+4. Use `mt_apk_dex_xref` on each SDK's entry points to separate **active** SDKs (called from app packages) from **passive** ones (pulled in only as mediation adapters) — see `mediation-patterns.md`.
+5. Report before touching anything:
+
+| SDK | Category | Confidence | Active/Passive | Evidence | Neutralizable |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Google AdMob | ads | HIGH | Active | classes + marker + manifest | yes (registry targets) |
+| Unity Ads | ads | HIGH | Passive (AdMob adapter) | classes only | yes |
+| Segment | analytics | HIGH | Active | classes only | **no** (detection-only entry) |
+
+**Step 2 — Neutralize (dry-run plan → edit session):**
+Present the plan first: for each confirmed SDK, which methods get stubbed at which depth, and which manifest components get disabled. Only after user approval, open an edit session (Phase 7) and:
+1. **Stub method bodies** per the registry `targets` using `mt_apk_read_text` + `mt_apk_edit_text` on each `dex_method:` locator — replace the body with the stub recipe for its return type (`return-void`, `const/4 v0, 0x0` + `return-object v0` for null, etc.; full catalog in `smali-patterns.md`):
+   - **Depth 1** (default, safest): `entry_points` only (initialize / start).
+   - **Depth 2**: + `ad_operations` (load / show / cache) — safety net if init is bypassed.
+   - **Depth 3**: + `deep_patterns` (bulk internal stubs) — aggressive, version-dependent.
+2. **Disable — never remove — SDK manifest components**: add `android:enabled="false"` via `mt_apk_edit_text` on `axml:AndroidManifest.xml`. Disabling preserves the XML structure; removing risks resource-reference breakage.
+3. **Consent apps** (Google UMP / IAB TCF): instead of plain stubs, use the reject-all `IABTCF_*` SharedPreferences injection described in `consent-neutralization.md` — it makes every TCF-honoring SDK self-limit.
+4. Entries without `targets` are **detection-only** — report them, don't stub (`registry-backlog.md` lists gaps).
+
+**Step 3 — Watch out for:**
+- **In-house ad wrappers**: an app-owned package driving the network SDKs and serving WebView/MRAID "house" ads — neutralizing every registry SDK does not stop it. Registry entries flagged `in_house_wrapper: true` cover known ones (e.g. `com.rovio.beacon`, `guru.ads.fusion`); otherwise discover the wrapper's init/load entry points manually.
+- **R8/ProGuard obfuscation** renames SDK classes so registry matching fails — fall back to endpoint domains, app-ID prefixes, and manifest `meta-data` names (they survive obfuscation) to locate the SDK, then identify its init methods by reading the smali.
+- **ContentProvider auto-init** (Firebase, Facebook): disabling the provider in the manifest is often enough; the SDK code can stay.
+- **Anti-tamper protection**: `com.pairip.*` classes (Play PairIP signature-VM) or manifest-declared components missing from `dex_classes` (packers) mean a rebuilt + re-signed APK **will not run** — warn the user before rebuilding. Never attempt to defeat the protection; report it.
+- **Native `.so` integrity checks** in ad SDKs (AdMob, IronSource) may detect smali tampering.
+- **Flutter apps**: ad/tracker SDKs are compiled into `libapp.so` — detect via `pp.txt`/`asm/` greps in the blutter output (domains, SDK keys); there are no smali stubs to make. Neutralization is r2 patching of the Dart functions or network-level blocking.
+
+**Step 4 — Verify & report:** `mt_apk_session_check(runBuildChecks=true)` → `mt_apk_build(sign=true)` → every stubbed method and disabled component becomes a row in the Phase 9 Modification Changelog.
+
+---
+
+#### Phase 7: Modification, Patching and APK Rebuilding via Edit Sessions
 
 When the goal includes modifying or verifying behavior changes:
 
@@ -252,7 +295,7 @@ When the goal includes modifying or verifying behavior changes:
 4. **Compile & Sign**:
    Call `mt_apk_build(workspaceId=..., editSessionId=..., sign=true, outputName="output_patched.apk")`.
 5. **Record Every Change for the Final Report**:
-   As edits are applied, keep a running list of each one — target locator, before → after values, tool used, and the reason. Phase 8 requires this as a detailed changelog table in the final output.
+   As edits are applied, keep a running list of each one — target locator, before → after values, tool used, and the reason. Phase 9 requires this as a detailed changelog table in the final output.
 
 ---
 
@@ -260,7 +303,7 @@ When the goal includes modifying or verifying behavior changes:
 
 **Do not use the MT Manager MCP server for Flutter targets.** The whole APK lifecycle runs through the bundled script [`scripts/flutter_apk_pipeline.py`](scripts/flutter_apk_pipeline.py) (stdlib-only Python 3): apktool for decompile/rebuild, uber-apk-signer for zipalign + sign, with automatic tool installation.
 
-#### Phase 7: Flutter Decompile, Patch and Rebuild Pipeline
+#### Phase 8: Flutter Decompile, Patch and Rebuild Pipeline
 
 **Step 1 — Decompile** (the script asks for the APK path when it is not given):
 ```bash
@@ -295,12 +338,12 @@ Launcher-wrapper tweaks (rare for Flutter): edit smali/resources directly under 
 
 ---
 
-### Phase 8: Structured Reporting
+### Phase 9: Structured Reporting
 
 Deliver reverse engineering findings in two tiers — plus a **mandatory modification changelog** whenever the APK or any of its binaries was changed:
 
 #### Modification Changelog Table (Mandatory When Any Change Was Made)
-Whenever any modification was applied — Smali/code edits (`mt_apk_edit_text` or direct edits in the apktool-decoded folder), native instruction or string patches (`mt_apk_native_patch_instructions` / `mt_apk_native_patch_string`), resource edits (`mt_apk_resource_edit` / `mt_apk_resource_add`), raw byte patches (`mt_apk_patch_bytes`), radare2 edits to `libapp.so` or to an extracted native lib, or manifest tweaks — the **final message to the user must contain a detailed table of every change and why it was made**. This is a required deliverable, not an intermediate note: the session is not complete until this table appears in the final output alongside the findings tables.
+Whenever any modification was applied — Smali/code edits (`mt_apk_edit_text` or direct edits in the apktool-decoded folder), SDK neutralization stubs and manifest component disables (Phase 6), native instruction or string patches (`mt_apk_native_patch_instructions` / `mt_apk_native_patch_string`), resource edits (`mt_apk_resource_edit` / `mt_apk_resource_add`), raw byte patches (`mt_apk_patch_bytes`), radare2 edits to `libapp.so` or to an extracted native lib, or manifest tweaks — the **final message to the user must contain a detailed table of every change and why it was made**. This is a required deliverable, not an intermediate note: the session is not complete until this table appears in the final output alongside the findings tables.
 
 One row per atomic change:
 
@@ -332,6 +375,7 @@ Provide detailed parameter schemas, headers, response types, and UI call chains 
 
 ## References & Guides
 
+- [Ads & Trackers Kit](references/ads-and-trackers/README.md) — SDK registry (50+ ad/tracker/consent SDKs with stub targets), smali stub catalog, consent reject-all injection, detection patterns. *Ported from the trackers-and-ads fork.*
 - [API Extraction Patterns](references/api-extraction-patterns.md) — Exact search patterns for Retrofit, OkHttp, Ktor, Volley, headers, and tokens.
 - [Call Flow Analysis](references/call-flow-analysis.md) — Tracing UI-to-network call graphs using `mt_apk_dex_xref`.
 - [Native Reverse Engineering](references/native-reverse-engineering.md) — ELF inspection, JNI enumeration, disassembly, CFG, and binary patching.

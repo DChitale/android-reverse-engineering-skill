@@ -1,0 +1,117 @@
+{
+  "$schema": "./_schema.json",
+  "sdk_id": "firebase-analytics",
+  "display_name": "Firebase Analytics",
+  "description": "Google Firebase Analytics (Google Analytics for Firebase)",
+  "vendor": "Google",
+  "category": "analytics",
+  "known_versions": [],
+  "packages": [
+    "com.google.firebase.analytics"
+  ],
+  "obfuscation": {
+    "public_api": "readable",
+    "internals": "obfuscated"
+  },
+  "targets": {
+    "entry_points": [
+      {
+        "class": "com.google.firebase.analytics.FirebaseAnalytics",
+        "methods": [
+          { "name": "logEvent", "signature": "*", "stub": "return-void", "note": "Log analytics event" },
+          { "name": "setUserId", "signature": "*", "stub": "return-void" },
+          { "name": "setUserProperty", "signature": "*", "stub": "return-void" },
+          { "name": "setAnalyticsCollectionEnabled", "signature": "*", "stub": "return-void" },
+          { "name": "setCurrentScreen", "signature": "*", "stub": "return-void" },
+          { "name": "setDefaultEventParameters", "signature": "*", "stub": "return-void" },
+          { "name": "resetAnalyticsData", "signature": "*", "stub": "return-void" },
+          { "name": "setSessionTimeoutDuration", "signature": "*", "stub": "return-void" }
+        ]
+      }
+    ],
+    "ad_operations": [],
+    "deep_patterns": [
+      {
+        "package_glob": "com.google.android.gms.measurement.**",
+        "rule": "stub_all_void",
+        "note": "Analytics measurement internals"
+      }
+    ]
+  },
+  "manifest_components": [
+    {
+      "type": "provider",
+      "class": "com.google.firebase.provider.FirebaseInitProvider",
+      "action": "disable",
+      "note": "Firebase auto-init ContentProvider"
+    },
+    {
+      "type": "service",
+      "class": "com.google.android.gms.measurement.AppMeasurementService",
+      "action": "disable",
+      "note": "Analytics measurement service"
+    },
+    {
+      "type": "receiver",
+      "class": "com.google.android.gms.measurement.AppMeasurementReceiver",
+      "action": "disable",
+      "note": "Analytics measurement receiver"
+    },
+    {
+      "type": "provider",
+      "class": "com.google.android.gms.measurement.AppMeasurementContentProvider",
+      "action": "disable",
+      "note": "Analytics measurement content provider"
+    },
+    {
+      "type": "receiver",
+      "class": "com.google.android.gms.measurement.AppMeasurementInstallReferrerReceiver",
+      "action": "disable",
+      "note": "Install referrer tracking receiver"
+    },
+    {
+      "type": "service",
+      "class": "com.google.android.gms.measurement.AppMeasurementJobService",
+      "action": "disable",
+      "note": "Analytics background job service"
+    },
+    {
+      "type": "receiver",
+      "class": "com.google.firebase.iid.FirebaseInstanceIdReceiver",
+      "action": "disable",
+      "note": "Firebase Instance ID receiver"
+    }
+  ],
+  "protected_patterns": [
+    {
+      "pattern": "*.getInstance()*",
+      "reason": "Singleton accessor — null causes NPE if called by app code"
+    }
+  ],
+  "detection": {
+    "exclude_packages": ["com.google.firebase.analytics.connector"],
+    "namespace_roots": [
+      "com.google.android.gms.measurement",
+      "com.google.android.gms.internal.measurement"
+    ],
+    "marker_classes": ["com.google.firebase.analytics.FirebaseAnalytics"],
+    "apis": [
+      { "class": "com.google.firebase.analytics.FirebaseAnalytics", "methods": ["getInstance"], "role": "init" },
+      { "class": "com.google.firebase.analytics.FirebaseAnalytics", "methods": ["setConsent", "setAnalyticsCollectionEnabled"], "role": "consent" },
+      { "class": "com.google.firebase.analytics.FirebaseAnalytics", "methods": ["logEvent"], "role": "event" },
+      { "class": "com.google.firebase.analytics.FirebaseAnalytics", "methods": ["setUserId", "setUserProperty"], "role": "identity" }
+    ],
+    "domains": ["app-measurement.com"],
+    "manifest_names": [
+      "firebase_analytics_collection_enabled",
+      "firebase_analytics_collection_deactivated",
+      "google_analytics_adid_collection_enabled",
+      "google_analytics_ssaid_collection_enabled",
+      "google_analytics_default_allow_analytics_storage",
+      "google_analytics_default_allow_ad_storage",
+      "google_analytics_default_allow_ad_user_data",
+      "google_analytics_default_allow_ad_personalization_signals"
+    ],
+    "note": "analytics/connector is the cross-SDK bridge (present without FirebaseAnalytics, e.g. badpiggies): not evidence. gms.measurement is a namespace, never identity: measurement code is library and AppMeasurement* manifest components stay pertinent."
+  }
+}

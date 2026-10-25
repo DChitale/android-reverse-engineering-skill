@@ -1,0 +1,308 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "sdk-registry-entry.schema.json",
+  "title": "SDK Neutralization Registry Entry",
+  "description": "Defines which public API methods of a third-party SDK can be safely neutralized (stubbed) in a decompiled Android APK.",
+  "type": "object",
+  "required": ["sdk_id", "display_name", "vendor", "category", "packages"],
+  "additionalProperties": false,
+  "if": { "not": { "required": ["targets"] } },
+  "then": { "not": { "anyOf": [ { "required": ["manifest_components"] }, { "required": ["protected_patterns"] } ] } },
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "sdk_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Unique lowercase identifier for this SDK. Equals the file name stem, except consent-umptcf.json -> google-ump-consent (historical). Consumers always use sdk_id, never the file name."
+    },
+    "display_name": {
+      "type": "string",
+      "pattern": "^[^:|\\n\\r\\t]+$",
+      "description": "Human-readable SDK name. Must not contain ':', '|', tab or newline (registry-scan.py and neutralize.sh use ':' and '|' as separators)."
+    },
+    "description": {
+      "type": "string"
+    },
+    "vendor": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["ads", "analytics", "attribution", "crash_reporting", "ads_mediation", "social", "consent"]
+    },
+    "known_versions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "SDK versions tested against (for reference only)"
+    },
+    "in_house_wrapper": {
+      "type": "boolean",
+      "description": "True when this entry is a publisher's own in-house ad/analytics mediation wrapper (it calls third-party network SDKs, or serves house/WebView ads, on the app's behalf) rather than a third-party SDK. Metadata only: registry-scan.py ignores it; detect-adwrapper.sh uses it so it does NOT treat this package as a known third-party SDK to exclude, and can flag the app as carrying an in-house wrapper."
+    },
+    "packages": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Root Java/Kotlin packages of this SDK"
+    },
+    "obfuscation": {
+      "type": "object",
+      "properties": {
+        "public_api": {
+          "type": "string",
+          "enum": ["readable", "mixed", "obfuscated"]
+        },
+        "internals": {
+          "type": "string",
+          "enum": ["readable", "mixed", "obfuscated"]
+        },
+        "internal_prefix": {
+          "type": "string",
+          "description": "If known, the obfuscation prefix pattern (e.g. 'zz', single letters)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "targets": {
+      "type": "object",
+      "description": "OPTIONAL. ABSENT = detection-only entry: registry-scan.py and neutralize.sh ignore it completely (a detection-only entry must not carry manifest_components or protected_patterns). Never null.",
+      "additionalProperties": false,
+      "properties": {
+        "entry_points": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/class_target" },
+          "description": "Level 1: SDK init methods. Stubbing these disables the entire SDK."
+        },
+        "ad_operations": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/class_target" },
+          "description": "Level 2: load/show/cache methods. Safety net if init stub is bypassed."
+        },
+        "deep_patterns": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/deep_pattern" },
+          "description": "Level 3: Broad internal patterns. Use for well-known SDK internals."
+        }
+      }
+    },
+    "manifest_components": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/manifest_component" },
+      "description": "AndroidManifest components to disable/remove"
+    },
+    "protected_patterns": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/protected_pattern" },
+      "description": "Methods/patterns that must NEVER be stubbed in this SDK"
+    },
+    "detection": {
+      "$ref": "#/definitions/detection"
+    }
+  },
+  "definitions": {
+    "detection": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Facts for the AUDIT only (find-trackers / find-ads). NEVER read by registry-scan.py or neutralize.sh and, in step 1, not by detect-adwrapper either: nothing here changes what gets neutralized. No regex anywhere: literals only.",
+      "properties": {
+        "extra_packages": {
+          "$ref": "#/definitions/package_list",
+          "description": "Identity packages NOT (yet) in `packages`: legacy, sub-products, code only this SDK ships. Each item is by definition a 'detected but not neutralized' gap. Disjoint from `packages`."
+        },
+        "exclude_packages": {
+          "$ref": "#/definitions/package_list",
+          "description": "Sub-packages of this entry's own roots that do NOT prove this SDK (e.g. gms.ads.identifier for google-admob, com.facebook.ads for facebook)."
+        },
+        "namespace_roots": {
+          "$ref": "#/definitions/package_list",
+          "description": "Wider vendor namespaces: code under them is LIBRARY (never app code), NEVER identity. Shared namespaces are forbidden (lint L12)."
+        },
+        "adapter_packages": {
+          "$ref": "#/definitions/package_list",
+          "description": "Mediators only: where the adapters to other networks live (one sub-package per network)."
+        },
+        "marker_classes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/top_level_class" },
+          "description": "Public top-level classes (no '$') verified on a real APK. When declared and none is present, the code found counts as MEDIUM (PARTIAL), not HIGH."
+        },
+        "apis": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/api_fact" },
+          "description": "Class-qualified APIs, in addition to the ones derived automatically from targets. A bare method name is never evidence."
+        },
+        "domains": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/host" },
+          "description": "Hosts or registrable suffixes (braze.com covers sdk.iad-01.braze.com). Weak evidence (LOW)."
+        },
+        "manifest_names": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9_.:]+$" },
+          "description": "Exact android:name values (meta-data, permission, action, component) that identify the SDK and do NOT start with one of its roots (those are matched by prefix automatically). Evidence only, never disabled."
+        },
+        "id_prefixes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["prefix", "label"],
+            "additionalProperties": false,
+            "properties": {
+              "prefix": { "type": "string", "minLength": 4 },
+              "label": { "type": "string", "pattern": "^[a-z0-9_]+$" }
+            }
+          },
+          "description": "Literal id prefixes (e.g. ca-app-pub- with label admob_id); no regex."
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "package_list": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[A-Za-z0-9_]+)*$" }
+    },
+    "top_level_class": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*\\.[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "host": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+    },
+    "api_fact": {
+      "type": "object",
+      "required": ["class", "methods", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[A-Za-z0-9_]+)*\\.[A-Za-z_][A-Za-z0-9_$]*$"
+        },
+        "methods": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^([A-Za-z_][A-Za-z0-9_]*|<init>)$" }
+        },
+        "role": {
+          "enum": ["init", "event", "identity", "consent", "config", "endpoint", "load", "show", "listener"]
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "class_target": {
+      "type": "object",
+      "required": ["class", "methods"],
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "type": "string",
+          "description": "Fully qualified Java class name (dot-separated)"
+        },
+        "methods": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/method_target" },
+          "minItems": 1
+        }
+      }
+    },
+    "method_target": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "description": "A method to neutralize. Provide EITHER 'stub' (replace body with a trivial no-op/constant return, derived from the return type by neutralize.sh) OR 'inject' (replace body with a purpose-built code sequence that actively does something — see 'inject'). 'inject' takes precedence over 'stub'.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Method name"
+        },
+        "signature": {
+          "type": "string",
+          "description": "Smali-style signature or '*' for all overloads"
+        },
+        "stub": {
+          "type": "string",
+          "enum": ["return-void", "return-false/0", "return-null"],
+          "description": "Trivial stub type. neutralize.sh actually derives the concrete stub from the method's smali return type; this field documents intent."
+        },
+        "inject": {
+          "type": "string",
+          "enum": [
+            "consent-reject-all",
+            "consent-info-update-success",
+            "return-const-1",
+            "return-const-3"
+          ],
+          "description": "CODE INJECTION (distinct from 'stub': the replacement body actively executes logic, it does not merely return). Kinds: 'consent-reject-all' — for the static void UMP form-show entry point loadAndShowConsentFormIfRequired(Activity,OnConsentFormDismissedListener): writes IAB TCF v2.2 reject-all values (gdprApplies=1, all-zero consent/LI keys, reject-all TCString) to the DEFAULT SharedPreferences, then invokes the passed OnConsentFormDismissedListener.onConsentFormDismissed(null) so the app proceeds as if the user chose 'reject all' — the dialog is never shown. 'consent-info-update-success' — for the instance void requestConsentInfoUpdate(Activity,ConsentRequestParameters,OnConsentInfoUpdateSuccessListener,OnConsentInfoUpdateFailureListener): immediately fires the success listener (no network) so the app continues its consent flow. 'return-const-1' / 'return-const-3' — return a fixed int/boolean constant (used to make canRequestAds()=true and getConsentStatus()=OBTAINED(3), so the app treats consent as handled and never re-shows the form). These target the concrete (often obfuscated, version-specific) UMP ConsentInformation implementation."
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "deep_pattern": {
+      "type": "object",
+      "required": ["package_glob", "rule"],
+      "additionalProperties": false,
+      "properties": {
+        "package_glob": {
+          "type": "string",
+          "description": "Glob pattern for packages (e.g. 'com.google.android.gms.internal.ads.**')"
+        },
+        "rule": {
+          "type": "string",
+          "enum": ["stub_all_void", "stub_all_concrete", "stub_all_non_getter"],
+          "description": "How aggressively to stub matched classes"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "manifest_component": {
+      "type": "object",
+      "required": ["type", "class", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["activity", "service", "receiver", "provider"]
+        },
+        "class": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["disable", "remove"]
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "protected_pattern": {
+      "type": "object",
+      "required": ["pattern", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "Glob or regex pattern for methods to protect"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

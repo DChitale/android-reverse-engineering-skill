@@ -19,6 +19,7 @@ An agentic skill for reverse engineering and cracking Android applications (APK/
 | **Native ELF Analysis & Lib Patching** | Inspects architectures, enumerates JNI exports, disassembles machine code, and builds control flow graphs (CFGs). When a lib needs patching, the user extracts it and radare2 applies equal-length patches, replayed into the APK via an edit session. | `mt_apk_native_inspect`, `mt_apk_native_disassemble`, `mt_apk_native_analyze_control_flow`, `mt_apk_patch_bytes` + radare2 |
 | **Flutter (Dart AOT) Analysis & Patching** | Local pipeline with no MCP: apktool decompile/rebuild (auto-installed), blutter-decompiled output navigation, radare2 patching of `libapp.so`, uber-apk-signer signing (jar path requested, auto-downloaded). | `scripts/flutter_apk_pipeline.py` + [blutter](https://github.com/worawit/blutter) + [r2flutter](https://github.com/radareorg/r2flutter) + radare2 |
 | **In-Place Patching & Building** | Staged copy-on-write edit sessions, Smali modification, instruction-level assembly patching, Dex checks, and signing. | `mt_apk_session_create`, `mt_apk_native_patch_instructions`, `mt_apk_build` |
+| **Ad & Tracker SDK Removal** | Detects 50+ ad/tracker/consent SDKs (AdMob, Unity, IronSource, Firebase Analytics, Adjust, AppsFlyer, …) against an SDK registry, then neutralizes them by stubbing entry points at the smali level and disabling manifest components — with depth control, dry-run planning, and UMP/TCF consent reject-all injection. | `mt_apk_search`, `mt_apk_dex_xref`, `mt_apk_edit_text` + [references/ads-and-trackers](references/ads-and-trackers/README.md) |
 
 ---
 
@@ -38,6 +39,10 @@ android-reverse-engineering-skill/
 ├── scripts/
 │   └── flutter_apk_pipeline.py    # Route B: apktool decompile/rebuild + uber-apk-signer
 └── references/
+    ├── ads-and-trackers/          # Ad/tracker SDK detection & neutralization kit
+    │   ├── README.md              # Script→MT Manager mapping + registry guide
+    │   ├── registry/              # 58 JSON entries: packages, stub targets, manifest components
+    │   └── *.md                   # Smali stub catalog, consent injection, detection patterns
     ├── api-extraction-patterns.md  # MT Manager MCP search queries for HTTP clients
     ├── available-tools.md          # Reference table of all 57 MT Manager MCP tools
     ├── call-flow-analysis.md      # Bytecode cross-reference & call tracing recipes
@@ -51,8 +56,13 @@ android-reverse-engineering-skill/
 
 ## References & Guides
 
+- [Ads & Trackers Kit](references/ads-and-trackers/README.md) — SDK registry, smali stub catalog, consent reject-all injection, ad-format/mediation/tracker detection patterns.
 - [API Extraction Patterns](references/api-extraction-patterns.md) — Retrofit, OkHttp, Ktor, Volley, and header extraction.
 - [Call Flow Analysis](references/call-flow-analysis.md) — UI-to-network tracing with `mt_apk_dex_xref`.
 - [Native Reverse Engineering](references/native-reverse-engineering.md) — Native `.so` analysis, disassembly, and assembly patching.
 - [Flutter Reverse Engineering](references/flutter-reverse-engineering.md) — Dart AOT snapshot internals, blutter output navigation, and editing `libapp.so` with radare2.
 - [MT Manager Available Tools](references/available-tools.md) — Reference table of all 57 MT Manager MCP tools and parameters.
+
+## Credits
+
+The ad & tracker detection/neutralization material in [references/ads-and-trackers/](references/ads-and-trackers/) is ported from [SimoneAvogadro's `trackers-and-ads` fork](https://github.com/SimoneAvogadro/android-reverse-engineering-skill/tree/trackers-and-ads) of this project (Apache-2.0), adapted from its local-decompile script pipeline to the MT Manager MCP toolchain.

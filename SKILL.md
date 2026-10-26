@@ -434,4 +434,6 @@ Provide detailed parameter schemas, headers, response types, and UI call chains 
 - [Native Reverse Engineering](references/native-reverse-engineering.md) — ELF inspection, JNI enumeration, disassembly, CFG, and binary patching.
 - [Flutter Reverse Engineering](references/flutter-reverse-engineering.md) — Dart AOT snapshot internals, manual assembly analysis, blutter output navigation, and editing `libapp.so` with radare2.
 - [React Native Reverse Engineering](references/react-native-reverse-engineering.md) — Hermes bytecode (HBC) format, hbctool/Kirlif toolchain, gate mapping in `instruction.hasm`, same-size patching with a mandatory round-trip proof, and bundle repack/sign.
+- [RevenueCat Patching](references/revenuecat-patching.md) — Reaching the place to patch subscription gates: `CustomerInfo`/`PurchaserInfo`, `getEntitlements()`, `isActive()`, smali regex, obfuscation keyword `activeEntitlements:`, Java + Flutter worked examples.
+- [PairIP Google Protection](references/pairip-google-protection.md) — LuckyPatcher custom patch + smali stubs to disable `com.pairip.SignatureCheck.verifyIntegrity` and `LicenseClientV3.onActivityCreate` (`return-void`).
 - [MT Manager Available Tools](references/available-tools.md) — Comprehensive reference table of all 57 MT Manager MCP tools and parameters.

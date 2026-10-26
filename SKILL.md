@@ -1,14 +1,15 @@
 ---
 name: apk-reverse-engineering-mt-manager
-description: Reverse engineer and crack Android apps via two toolchains, selected by asking the user for the app type up front. Java/Kotlin apps use the MT Manager MCP server for Dex/Smali inspection, HTTP API endpoint extraction (Retrofit, OkHttp, Ktor, Volley), UI-to-network call-flow tracing, native ELF (.so) disassembly, radare2 lib patching with verified patch/rebuild, and ad/tracker SDK detection & removal (stub AdMob, Unity, IronSource, Firebase Analytics, Adjust, AppsFlyer and 50+ more via the SDK registry). Flutter apps use a local Python pipeline with NO MT Manager — apktool decompile/rebuild (auto-installed), blutter + radare2 for Dart AOT libapp.so patching, and uber-apk-signer for signing. Use when the user wants to decompile, inspect, crack, reverse engineer, or patch Android packages, extract API endpoints, analyze native libraries, remove ads, remove trackers, strip telemetry, neutralize SDKs, or analyze/patch Flutter apps and libapp.so. 中文触发词：反编译APK、安卓逆向、提取API、分析安卓应用、反编译安卓、逆向工程、追踪调用链、提取接口、修改APK、破解APP、去广告、移除广告、去除追踪器、移除SDK、隐私分析、Flutter逆向、分析libapp.so、修改libapp.so、Dart快照分析
+description: Reverse engineer and crack Android apps via three toolchains, selected by asking the user for the app type up front. Java/Kotlin apps use the MT Manager MCP server for Dex/Smali inspection, HTTP API endpoint extraction (Retrofit, OkHttp, Ktor, Volley), UI-to-network call-flow tracing, native ELF (.so) disassembly, radare2 lib patching with verified patch/rebuild, and ad/tracker SDK detection & removal (stub AdMob, Unity, IronSource, Firebase Analytics, Adjust, AppsFlyer and 50+ more via the SDK registry). Flutter apps use a local Python pipeline with NO MT Manager — apktool decompile/rebuild (auto-installed), blutter + radare2 for Dart AOT libapp.so patching, and uber-apk-signer for signing. React Native apps use a local Hermes pipeline with NO MT Manager — the Kirlif HBC-Tool fork disassembles assets/index.android.bundle (HBC bytecode), gates are patched same-size in instruction.hasm behind a mandatory round-trip proof, and the APK is repacked with the bundle STORED + zipalign/apksigner signing. Use when the user wants to decompile, inspect, crack, reverse engineer, or patch Android packages, extract API endpoints, analyze native libraries, remove ads, remove trackers, strip telemetry, neutralize SDKs, analyze/patch Flutter apps and libapp.so, or analyze/patch React Native Hermes bundles. 中文触发词：反编译APK、安卓逆向、提取API、分析安卓应用、反编译安卓、逆向工程、追踪调用链、提取接口、修改APK、破解APP、去广告、移除广告、去除追踪器、移除SDK、隐私分析、Flutter逆向、分析libapp.so、修改libapp.so、Dart快照分析、React Native逆向、Hermes字节码、HBC补丁、修改index.android.bundle
 ---
 
-# Android Reverse Engineering — Java Route (MT Manager MCP) & Flutter Route (Local Pipeline)
+# Android Reverse Engineering — Java Route (MT Manager MCP), Flutter & React Native Routes (Local Pipeline)
 
-Two toolchains, selected up front by asking the user which kind of app it is:
+Three toolchains, selected up front by asking the user which kind of app it is:
 
 - **Java/Kotlin app** → **Route A**: the **MT Manager MCP Server** handles workspace triage, Dex/Smali inspection, API extraction, call-flow tracing, native ELF analysis, and verified patch/rebuild. Apps that require native lib patching: the user extracts the specific lib, radare2 patches it, and the patch is replayed through an MT Manager edit session. Ad/tracker SDK removal is built in (Phase 6).
 - **Flutter app** → **Route B**: a local **Python pipeline** — apktool (decompile/rebuild, auto-installed), blutter + radare2 (Dart AOT `libapp.so` analysis/patching), uber-apk-signer (signing). **No MT Manager MCP for Flutter targets.**
+- **React Native app** → **Route C**: a local **Python pipeline** — the **Kirlif HBC-Tool fork** (hbctool) disassembles `assets/index.android.bundle` (Hermes bytecode) into hasm, gates are patched **same-size** in `instruction.hasm` behind a mandatory round-trip proof, and the APK is repacked (bundle STORED) + zipalign/apksigner-signed. **No MT Manager MCP for RN bundle work** (it still serves the Dex wrapper, e.g. Phase 6 ad-SDK sweeps).
 
 ---
 
@@ -25,7 +26,9 @@ Two toolchains, selected up front by asking the user which kind of app it is:
   - [Phase 7: Modification, Patching and APK Rebuilding via Edit Sessions](#phase-7-modification-patching-and-apk-rebuilding-via-edit-sessions)
 - **Route B — Flutter via local pipeline (no MT Manager)**
   - [Phase 8: Flutter Decompile, Patch and Rebuild Pipeline](#phase-8-flutter-decompile-patch-and-rebuild-pipeline)
-- [Phase 9: Structured Reporting](#phase-9-structured-reporting)
+- **Route C — React Native via local pipeline (no MT Manager)**
+  - [Phase 9: React Native Decompile, Patch and Rebuild Pipeline (Hermes)](#phase-9-react-native-decompile-patch-and-rebuild-pipeline-hermes)
+- [Phase 10: Structured Reporting](#phase-10-structured-reporting)
 - [References & Guides](#references--guides)
 
 ---
@@ -36,24 +39,25 @@ Two toolchains, selected up front by asking the user which kind of app it is:
 
 **Before touching any tool, ask the user which type of app it is:**
 
-> "Is the target app a **Java/Kotlin** (native Android) app or a **Flutter** app?"
+> "Is the target app a **Java/Kotlin** (native Android) app, a **Flutter** app, or a **React Native** app?"
 
 | Answer | Route |
 | :--- | :--- |
 | Java / Kotlin / "normal Android app" | **Route A** — Phases 1–7 (MT Manager MCP) |
 | Flutter | **Route B** — Phase 8 (local apktool pipeline, no MT Manager) |
+| React Native / "it's built with JavaScript" | **Route C** — Phase 9 (local Hermes pipeline, no MT Manager) |
 
 If the user is unsure, detect it locally (no MCP needed) by listing the APK's zip entries (`python -c "import zipfile; [print(n) for n in zipfile.ZipFile('target.apk').namelist()]"` or `unzip -l target.apk`):
 
 | Marker Detected | Type | Route / Implication |
 | :--- | :--- | :--- |
 | `lib/*/libapp.so` + `libflutter.so`, or `assets/flutter_assets/` | **Flutter** | Route B — Dex only holds the thin `io.flutter` launcher; logic is in `libapp.so`. |
-| `assets/index.android.bundle` | **React Native** | Route A for the wrapper; business logic is in the Hermes/JS bundle — extract and inspect separately. |
+| `assets/index.android.bundle` | **React Native** | Route C — Dex only wraps the RN runtime; all business logic is Hermes bytecode in the bundle. If the bundle does not start with the Hermes magic `C6 1F BC 03 C1 03 19 1F`, it is plain JS — patch it directly as text. |
 | `assets/www/index.html` | **Cordova / Capacitor** | Route A for the wrapper; inspect HTML/JS under `assets/www/`. |
 | `assemblies/`, `libmonosgen*.so` | **Xamarin / .NET MAUI** | Route A; logic compiled into .NET DLL assemblies. |
 | None of the above | **Native Java/Kotlin** | Route A — full Dex/Smali reverse engineering applies. |
 
-Both routes finish at **Phase 9: Structured Reporting**.
+All routes finish at **Phase 10: Structured Reporting**.
 
 ---
 
@@ -274,7 +278,7 @@ Present the plan first: for each confirmed SDK, which methods get stubbed at whi
 - **Native `.so` integrity checks** in ad SDKs (AdMob, IronSource) may detect smali tampering.
 - **Flutter apps**: ad/tracker SDKs are compiled into `libapp.so` — detect via `pp.txt`/`asm/` greps in the blutter output (domains, SDK keys); there are no smali stubs to make. Neutralization is r2 patching of the Dart functions or network-level blocking.
 
-**Step 4 — Verify & report:** `mt_apk_session_check(runBuildChecks=true)` → `mt_apk_build(sign=true)` → every stubbed method and disabled component becomes a row in the Phase 9 Modification Changelog.
+**Step 4 — Verify & report:** `mt_apk_session_check(runBuildChecks=true)` → `mt_apk_build(sign=true)` → every stubbed method and disabled component becomes a row in the Phase 10 Modification Changelog.
 
 ---
 
@@ -295,7 +299,7 @@ When the goal includes modifying or verifying behavior changes:
 4. **Compile & Sign**:
    Call `mt_apk_build(workspaceId=..., editSessionId=..., sign=true, outputName="output_patched.apk")`.
 5. **Record Every Change for the Final Report**:
-   As edits are applied, keep a running list of each one — target locator, before → after values, tool used, and the reason. Phase 9 requires this as a detailed changelog table in the final output.
+   As edits are applied, keep a running list of each one — target locator, before → after values, tool used, and the reason. Phase 10 requires this as a detailed changelog table in the final output.
 
 ---
 
@@ -338,12 +342,60 @@ Launcher-wrapper tweaks (rare for Flutter): edit smali/resources directly under 
 
 ---
 
-### Phase 9: Structured Reporting
+### Route C: React Native Apps via Local Pipeline (No MT Manager)
+
+**Do not use the MT Manager MCP server for Hermes bundle work.** Dex only wraps the RN runtime — the business logic (API clients, feature gates, paywalls) is **Hermes bytecode (HBC)** in `assets/index.android.bundle`, disassembled and patched locally. The lifecycle runs through the bundled script [`scripts/rn_hbc_pipeline.py`](scripts/rn_hbc_pipeline.py) (stdlib-only Python 3) plus the **Kirlif HBC-Tool fork** of hbctool (pip's hbctool 0.1.5 only supports HBC ≤ 76; current RN ships v96+). The MT Manager tools remain valid for the Dex wrapper — e.g. the Phase 6 ad/tracker SDK sweep still applies to it.
+
+#### Phase 9: React Native Decompile, Patch and Rebuild Pipeline (Hermes)
+
+**Step 1 — Recon**: `rn_hbc_pipeline.py pull <package>` resolves `adb shell pm path` and pulls `base.apk` plus every split; `adb shell dumpsys package <pkg>` for `versionName`/`dataDir`. Play split installs (~9 MB) vs sideloaded monoliths (~60 MB) differ in size by design — not bloat.
+
+**Step 2 — Extract the bundle** (record size + sha256; the baseline for every later comparison):
+```bash
+python scripts/rn_hbc_pipeline.py extract base.apk      # -o bundle.hbc
+```
+The script verifies the Hermes magic (`C6 1F BC 03 C1 03 19 1F`) and prints the HBC version. No magic → plain JS bundle → patch as text, skip the rest.
+
+**Step 3 — Disassemble** (pass the Kirlif fork checkout via `--hbctool <dir>` or `HBCTOOL_DIR`; `check` reports availability):
+```bash
+python scripts/rn_hbc_pipeline.py disasm bundle.hbc out/
+# out/instruction.hasm (EDITABLE), out/metadata.json + out/string.json (NEVER edit)
+```
+`string.json` is the bundle's recon surface — every URL, endpoint, and flag name.
+
+**Step 4 — Find the gate**: grep `string.json` for gate tokens (`is_paid`, `isLocked`, `locked`, `Premium`, `Subscribe`, `storyLocked`, `isPremiumContent`, …); grep `instruction.hasm` for those string ids to locate the renderer; map the lock flag register (a single register set from the gate string, consumed by `JmpFalse`/`JmpTrue`); confirm the renderer is unique (patch a second detail screen too).
+
+**Step 5 — Prove the gate is client-side**: fetch a premium article's page — if the HTML contains the full body (plus an inline "subscribe" block), the server ships everything and the app only paints over it → patch the client. If the API truncates the body → no client patch can recover it; pivot to the WebView fallback.
+
+**Step 6 — Patch, same-size only**: never change instruction length (jump offsets are relative to the instruction start; insertions shift every relative jump). The workhorse: `LoadConstTrue Reg8:N` → `LoadConstFalse Reg8:N` (2 bytes → 2 bytes). Verify the hasm diff is exactly the lines you intended.
+
+**Step 7 — Round-trip proof** (mandatory, on the unmodified hasm first):
+```bash
+python scripts/rn_hbc_pipeline.py roundtrip bundle.hbc out/ --patched-hasm out_patched/
+```
+Assembles the unmodified hasm back to HBC, re-disassembles, diffs (line-identical modulo CRLF) and hash-compares (byte-identical) against the original bundle — only then assembles the patched hasm and diffs it against the baseline: exactly your edited lines, and 1 changed byte per single-instruction patch in the binary diff. A failed baseline means the toolchain does not round-trip this HBC version — fix the toolchain, never ship the patch.
+
+**Step 8 — Repackage**: replace the bundle **STORED/uncompressed** (Hermes mmaps it), preserving entry order and compression types, then zipalign + apksigner with a debug key, then verify the bundle inside the signed APK hashes to the patched bundle:
+```bash
+python scripts/rn_hbc_pipeline.py repack base.apk bundle_patched.hbc
+python scripts/rn_hbc_pipeline.py sign base_repacked.apk
+python scripts/rn_hbc_pipeline.py verify-apk base_repacked-aligned-signed.apk bundle_patched.hbc
+```
+
+**Step 9 — Install + runtime test**: uninstall the Play build first (signature mismatch; **wipes app data — warn the user**), `adb install`, then open a premium article **from the in-app list** (not a deep link — deep links can take the WebView path). Pass criteria: full body, no fade overlay, no locked card, no "Continue Reading With Premium Access", audio/live-blog sections present.
+
+**Fallbacks**: still gated → the article routed to the WebView; patch the routing config function (`isNativeArticleDetailScreen` / `app_Detail_Screen` keys in `string.json`) to unconditionally return `true`, or point the WebView at the article URL. Truncated body → server-side gating; patch the WebView `baseUrl`. Launch crash with a rejected bundle → integrity check; spoof the `sourceHash` in `metadata.json`.
+
+*Full guide — HBC format notes, gate-mapping recipe, same-size patch rules, fallbacks, gotchas — in [references/react-native-reverse-engineering.md](references/react-native-reverse-engineering.md).*
+
+---
+
+### Phase 10: Structured Reporting
 
 Deliver reverse engineering findings in two tiers — plus a **mandatory modification changelog** whenever the APK or any of its binaries was changed:
 
 #### Modification Changelog Table (Mandatory When Any Change Was Made)
-Whenever any modification was applied — Smali/code edits (`mt_apk_edit_text` or direct edits in the apktool-decoded folder), SDK neutralization stubs and manifest component disables (Phase 6), native instruction or string patches (`mt_apk_native_patch_instructions` / `mt_apk_native_patch_string`), resource edits (`mt_apk_resource_edit` / `mt_apk_resource_add`), raw byte patches (`mt_apk_patch_bytes`), radare2 edits to `libapp.so` or to an extracted native lib, or manifest tweaks — the **final message to the user must contain a detailed table of every change and why it was made**. This is a required deliverable, not an intermediate note: the session is not complete until this table appears in the final output alongside the findings tables.
+Whenever any modification was applied — Smali/code edits (`mt_apk_edit_text` or direct edits in the apktool-decoded folder), SDK neutralization stubs and manifest component disables (Phase 6), native instruction or string patches (`mt_apk_native_patch_instructions` / `mt_apk_native_patch_string`), resource edits (`mt_apk_resource_edit` / `mt_apk_resource_add`), raw byte patches (`mt_apk_patch_bytes`), radare2 edits to `libapp.so` or to an extracted native lib, Hermes `instruction.hasm` patches (Route C), or manifest tweaks — the **final message to the user must contain a detailed table of every change and why it was made**. This is a required deliverable, not an intermediate note: the session is not complete until this table appears in the final output alongside the findings tables.
 
 One row per atomic change:
 
@@ -352,6 +404,7 @@ One row per atomic change:
 | 1 | `dex_method:Lcom/example/license/LicenseCheck;->isValid()Z` | Smali edit (`mt_apk_edit_text`) | `const/4 v0, 0x0` → `const/4 v0, 0x1` | Force `isValid()` to return `true` so the patched build runs without the server-side license check | `mt_apk_session_check` passed; re-read of smali confirms the edit |
 | 2 | `lib/arm64-v8a/libapp.so` @ `0x1a2b40` | Native patch (radare2 `wa nop` on the decoded lib) | `bl 0x1a2c10` (`_LicenseValidator@validate`) → `nop` (equal-length, 4 bytes) | Skip the Dart AOT license gate invoked at startup; NOP keeps snapshot offsets stable | `radiff2 -C` shows only this hunk; rebuilt + signed APK launches trial features |
 | 3 | `res/values/strings.xml` → `server_host` | Resource edit (`mt_apk_resource_edit`) | `https://prod.example.com` → `https://staging.example.com` | Redirect API traffic to the staging environment for safe testing | Re-read of resource confirms new value; rebuilt APK contacts staging host |
+| 4 | `assets/index.android.bundle` → `instruction.hasm`, detail-renderer function | Hermes hasm edit (`rn_hbc_pipeline.py` round-trip + repack) | `LoadConstTrue Reg8:9` → `LoadConstFalse Reg8:9` (2 bytes → 2 bytes) | Flip the `is_paid` gate register so the detail renderer takes the unlocked branch; same-size patch keeps every relative jump valid | `roundtrip` diff shows exactly this line; binary diff = 1 byte; patched article renders fully |
 
 Changelog rules:
 - **One row per atomic change.** Never summarize multiple edits into a single row ("various smali edits" is unacceptable).
@@ -380,4 +433,5 @@ Provide detailed parameter schemas, headers, response types, and UI call chains 
 - [Call Flow Analysis](references/call-flow-analysis.md) — Tracing UI-to-network call graphs using `mt_apk_dex_xref`.
 - [Native Reverse Engineering](references/native-reverse-engineering.md) — ELF inspection, JNI enumeration, disassembly, CFG, and binary patching.
 - [Flutter Reverse Engineering](references/flutter-reverse-engineering.md) — Dart AOT snapshot internals, manual assembly analysis, blutter output navigation, and editing `libapp.so` with radare2.
+- [React Native Reverse Engineering](references/react-native-reverse-engineering.md) — Hermes bytecode (HBC) format, hbctool/Kirlif toolchain, gate mapping in `instruction.hasm`, same-size patching with a mandatory round-trip proof, and bundle repack/sign.
 - [MT Manager Available Tools](references/available-tools.md) — Comprehensive reference table of all 57 MT Manager MCP tools and parameters.

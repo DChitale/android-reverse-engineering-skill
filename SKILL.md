@@ -436,4 +436,4 @@ Provide detailed parameter schemas, headers, response types, and UI call chains 
 - [React Native Reverse Engineering](references/react-native-reverse-engineering.md) — Hermes bytecode (HBC) format, hbctool/Kirlif toolchain, gate mapping in `instruction.hasm`, same-size patching with a mandatory round-trip proof, and bundle repack/sign.
 - [RevenueCat Patching](references/revenuecat-patching.md) — Reaching the place to patch subscription gates: `CustomerInfo`/`PurchaserInfo`, `getEntitlements()`, `isActive()`, smali regex, obfuscation keyword `activeEntitlements:`, Java + Flutter worked examples.
 - [PairIP Google Protection](references/pairip-google-protection.md) — LuckyPatcher custom patch + smali stubs to disable `com.pairip.SignatureCheck.verifyIntegrity` and `LicenseClientV3.onActivityCreate` (`return-void`).
-- [MT Manager Available Tools](references/available-tools.md) — Comprehensive reference table of all 57 MT Manager MCP tools and parameters.
+- [MT Manager Available Tools](references/available-tools.md) — Comprehensive reference table of all 67 MT Manager MCP tools and parameters.

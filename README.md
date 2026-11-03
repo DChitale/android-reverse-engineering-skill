@@ -48,7 +48,7 @@ android-reverse-engineering-skill/
     │   ├── registry/              # 58 JSON entries: packages, stub targets, manifest components
     │   └── *.md                   # Smali stub catalog, consent injection, detection patterns
     ├── api-extraction-patterns.md  # MT Manager MCP search queries for HTTP clients
-    ├── available-tools.md          # Reference table of all 57 MT Manager MCP tools
+    ├── available-tools.md          # Reference table of all 67 MT Manager MCP tools
     ├── call-flow-analysis.md      # Bytecode cross-reference & call tracing recipes
     ├── flutter-reverse-engineering.md # Dart AOT snapshot analysis, blutter & radare2
     ├── react-native-reverse-engineering.md # Hermes bytecode (HBC) analysis, hbctool patching & repack
@@ -67,7 +67,7 @@ android-reverse-engineering-skill/
 - [Native Reverse Engineering](references/native-reverse-engineering.md) — Native `.so` analysis, disassembly, and assembly patching.
 - [Flutter Reverse Engineering](references/flutter-reverse-engineering.md) — Dart AOT snapshot internals, blutter output navigation, and editing `libapp.so` with radare2.
 - [React Native Reverse Engineering](references/react-native-reverse-engineering.md) — Hermes bytecode format, gate mapping in `instruction.hasm`, same-size patching with round-trip proof, and bundle repack/sign.
-- [MT Manager Available Tools](references/available-tools.md) — Reference table of all 57 MT Manager MCP tools and parameters.
+- [MT Manager Available Tools](references/available-tools.md) — Reference table of all 67 MT Manager MCP tools and parameters.
 
 ## Credits
 

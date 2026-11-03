@@ -1,9 +1,9 @@
 # MT Manager MCP — Available Tools Reference
 
 > [!NOTE]
-> **MT Manager MCP Server** provides 57 tools split into three core engines:
-> 1. **APK Engine (`mt_apk_*`)** (30 tools): Inspection, Dex/Smali analysis, resource handling, native ELF reverse engineering, in-place binary/text patching, session staging, and APK building.
-> 2. **File System Engine (`mt_file_*`)** (20 tools): Sandboxed, policy-governed local file I/O, regex searching, streaming reads/writes, byte patching, and directory tree management.
+> **MT Manager MCP Server** provides 67 tools split into three core engines:
+> 1. **APK Engine (`mt_apk_*`)** (37 tools): Inspection, Dex/Smali analysis, resource handling, native ELF reverse engineering, in-place binary/text patching, session staging, and APK building.
+> 2. **File System Engine (`mt_file_*`)** (23 tools): Sandboxed, policy-governed local file I/O, regex searching, streaming reads/writes, byte patching, and directory tree management.
 > 3. **ZIP Engine (`mt_zip_*`)** (7 tools): Archive integrity verification, entry stream inspection, selective extraction, archive creation, and in-place updates.
 
 ---

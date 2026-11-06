@@ -2,7 +2,7 @@
 
 Detection and neutralization knowledge for **ad SDKs**, **tracker/analytics SDKs**, and **consent frameworks** — covering 50+ SDKs (AdMob, Unity Ads, IronSource, AppLovin, Meta Audience Network, Vungle, Pangle, Mintegral, Firebase Analytics, Adjust, AppsFlyer, Mixpanel, Amplitude, Braze, CleverTap, AppMetrica, Crashlytics, Google UMP, and more).
 
-> **Ported from the [trackers-and-ads fork](https://github.com/SimoneAvogadro/android-reverse-engineering-skill/tree/trackers-and-ads)** of this project (Apache-2.0). That fork implements the same techniques as shell/Python scripts over apktool/jadx-decoded trees; this skill runs the same playbook through the **MT Manager MCP server** (Java route) or the **apktool pipeline** (Flutter route) instead. The mapping:
+> **Ported from the [trackers-and-ads fork](https://github.com/SimoneAvogadro/android-reverse-engineering-skill/tree/trackers-and-ads)** of this project (Apache-2.0). That fork implements the same techniques as shell/Python scripts over apktool/jadx-decoded trees; this skill runs the same playbook through the **MT Manager MCP server** for both the Java route and the Flutter route (Flutter SDK calls are Dart code inside `libapp.so`, patched with `mt_apk_native_patch_instructions`). The mapping:
 
 | Fork step (script) | This skill's equivalent |
 | :--- | :--- |
@@ -10,11 +10,13 @@ Detection and neutralization knowledge for **ad SDKs**, **tracker/analytics SDKs
 | `sdk-audit.sh --entrypoints` (active vs passive SDKs) | `mt_apk_dex_xref` on each SDK entry point to see whether app code (non-SDK packages) actually calls it |
 | `registry-scan.py` <dir> | Read `registry/*.json` directly; match `packages` against `mt_apk_list(view="dex_classes")` output |
 | `neutralize.sh --dry-run` | Present the planned stubs (from registry `targets` + `smali-patterns.md`) for user confirmation before creating any edit |
+| `neutralize.sh --all` (bulk first pass) | `regex-batch-blocking.md`: TDOhex void/boolean/string regex board applied over the smali tree (`mt_apk_search` regex → `mt_apk_edit_text`, or MT's in-app batch replace) |
 | `neutralize.sh` (apply) | `mt_apk_edit_text` on each target method (stub body) + manifest component `android:enabled="false"` via `mt_apk_edit_text` on `axml:AndroidManifest.xml` |
 | `detect-protection.sh` | Manifest/smali markers: `com.pairip.*`, declared components missing from `dex_classes`, `com.google.android.vending.licensing` |
 | `detect-adwrapper.sh` | In-house wrapper flags in the registry (`in_house_wrapper: true`); otherwise an unknown app-owned package driving ad SDK calls |
-| `decode-apk.sh` / `rebuild-apk.sh` | Route B pipeline: `scripts/flutter_apk_pipeline.py decompile/rebuild/sign` |
-| `neutralize-manifest.json` (patch log) | The Phase 9 **Modification Changelog Table** in the final output |
+| `decode-apk.sh` / `rebuild-apk.sh` | Not needed: MT opens the APK directly and `mt_apk_build` repacks + signs. For Flutter, `scripts/flutter_apk_pipeline.py plan <blutter-out>` indexes the Dart symbols that the registry's package names match against `pp.txt`. |
+| Flutter SDK neutralization | No smali stubs exist (SDKs compile into `libapp.so`): patch the Dart init/load functions via `mt_apk_native_patch_instructions`, or block the SDK's domains at the network layer. |
+| `neutralize-manifest.json` (patch log) | The Phase 10 **Modification Changelog Table** in the final output |
 
 ## Contents
 
@@ -22,6 +24,7 @@ Detection and neutralization knowledge for **ad SDKs**, **tracker/analytics SDKs
 | :--- | :--- |
 | `registry/*.json` | **The single source of SDK knowledge**: per-SDK `packages`, `targets` (entry_points / ad_operations / deep_patterns with class + method + signature + stub type), `manifest_components`, `detection` (marker classes, domains, ID prefixes, APIs), `in_house_wrapper` flags. `_schema.json` documents the format; `_audit-shared.json` holds cross-SDK tables (library roots, ad format tables, legacy flags). |
 | `neutralization-guide.md` | Approach (stub > remove > block), return-type → stub mapping, singleton/`getInstance()` null pitfalls, manifest disable-vs-remove, multidex, R8 obfuscation, signature invalidation, legal notes. |
+| `regex-batch-blocking.md` | **Fast first pass**: TDOhex three-rule regex board (void `nop`, boolean `const/4 0x0`, host → `127.0.0.1`) for 30+ ad/tracker SDKs in one sweep, with anchor rationale, MCP apply procedure, and the string-rule blast radius. |
 | `smali-patterns.md` | Complete smali stub catalog per SDK — read this before writing any stub. |
 | `consent-neutralization.md` | Google UMP / IAB TCF v2.2 "reject-all" code injection: which `IABTCF_*` SharedPreferences keys to write, where to hook, caveats. |
 | `registry-backlog.md` | Coverage gaps: detection-only entries (no `targets` yet: Segment, Flurry, TikTok Business, BIGO Ads, Kidoz, APM Insight), missing SDKs. |

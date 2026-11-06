@@ -141,9 +141,9 @@ Find static callers, jump targets, or string references:
 
 ## 5. Patching Native Code
 
-### Patching Instructions Assembly Source
+### Patching Instructions (Assembly Source)
 
-Instead of manually calculating opcode hex values, use `mt_apk_native_patch_instructions`:
+Instead of manually calculating opcode hex values, use `mt_apk_native_patch_instructions`. `expectedHex` must be read **inside the same edit session** (base-workspace reads can mismatch):
 
 ```json
 {
@@ -152,12 +152,16 @@ Instead of manually calculating opcode hex values, use `mt_apk_native_patch_inst
   "locator": "zip_entry:lib/arm64-v8a/libsecurity.so",
   "addressKind": "virtual",
   "address": "0x12340",
+  "instructionMode": "auto",
   "replacementAssembly": "mov w0, #1\nret",
-  "expectedHex": "ff8300d1fd7b01a9"
+  "expectedHex": "ff8300d1fd7b01a9",
+  "paddingMode": "nop"
 }
 ```
-- `expectedHex` prevents applying patches over stale reads.
-- MT Manager MCP validates alignment, instruction encoding, and adds necessary NOP padding.
+- `expectedHex` guards against stale reads **and** defines the equal-length patch window (max 256 bytes).
+- The assembler encodes at the effective virtual address, so `b`/`bl`/`adrp` re-encode correctly.
+- `paddingMode: "nop"` fills a replacement shorter than the window; `"none"` demands an exact length match.
+- Address must be 4-byte aligned on AArch64/ARM. `addressKind: "file_offset"` (offset inside the SO entry) is the fallback when `mt_apk_native_map_address` reports a mapping miss.
 
 ### Patching Strings
 
@@ -168,9 +172,14 @@ To modify API endpoints, server hosts, or log tags embedded in `.so` files:
   "workspaceId": "<workspaceId>",
   "editSessionId": "<editSessionId>",
   "locator": "zip_entry:lib/arm64-v8a/libsecurity.so",
-  "fileOffset": 10452,
+  "addressKind": "file_offset",
+  "address": "10452",
   "expectedText": "https://api.prod.example.com",
   "replacementText": "https://api.test.example.com",
-  "paddingMode": "nul_terminated"
+  "paddingMode": "null_pad"
 }
 ```
+
+`paddingMode`: `"none"` (equal UTF-8 byte length), `"null_pad"` (NUL-terminated C string; growth consumes existing zero padding, window = max+1), `"space_pad"` (fixed-width visible string; growth consumes ASCII spaces). Patch window limit is 4096 UTF-8 bytes, and the tool never resizes the entry or relocates references.
+
+> Dart/Flutter `libapp.so` follows the same tool path — see [flutter-reverse-engineering.md](flutter-reverse-engineering.md) for the blutter address plan and the Dart singleton patch recipes.

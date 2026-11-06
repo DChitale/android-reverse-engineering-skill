@@ -76,16 +76,35 @@ flowchart TD
 
 ---
 
-## 5. Native ELF Reverse Engineering (`.so` Binaries)
+## 5. Native ELF Reverse Engineering & Lib Patching (`.so` Binaries)
+
+The native engine does the whole lib lifecycle **inside the APK**: inspect → map → disassemble → CFG → patch instructions/strings → session check → build + sign. No extraction, no external assembler, no byte hand-encoding.
+
+### 5.1 Analysis tools
 
 | Tool | Purpose | Key Parameters & Guidelines |
 | :--- | :--- | :--- |
 | **`mt_apk_native_inspect`** | **Entry point for native analysis**. High-level summary of an ELF shared object. | Provides architecture, endianness, bit width, machine type, section summaries, and unfiltered item counts for symbols, dynamic symbols, relocations, and init/fini arrays. |
 | **`mt_apk_native_list_items`** | Paginates through detailed ELF item tables. | `itemKind`: `"symbols"`, `"dynamic_symbols"`, `"relocations"`, `"init_array"`, `"fini_array"`, `"segments"`, `"sections"`, `"string_table"`.<br>`namePrefix`: filter prefix. |
-| **`mt_apk_native_map_address`** | Maps virtual addresses (VA) to file offsets and vice-versa within an `.so` entry. | Checks `isLoaded` and `isExecutable`. Returns enclosing function symbol context to guide disassembly and CFG generation. |
+| **`mt_apk_native_map_address`** | Maps virtual addresses (VA) to file offsets and vice-versa within an `.so` entry. | `workspaceId`, `editSessionId` (`""` for the base view), `locator`, `addressKind`, `address`.<br>Returns `found` + `mapping.{sectionName, virtualAddress, fileOffset, rangeOffset, size, isLoaded, isExecutable}`.<br>**Always check `isLoaded` + `isExecutable` before disassembling or patching.** `virtual` → `file_offset` is the documented fallback when a virtual address is not file-backed. |
 | **`mt_apk_native_xref`** | Searches static direct references (calls, jumps, data pointers) to an ELF address. | `scanKind`: `"both"`, `"code"`, or `"data"`.<br>`referenceKinds`: `["call", "jump", "data"]`.<br>Supports ARM, Thumb, ARM64, x86, and x86_64. |
-| **`mt_apk_native_disassemble`** | Disassembles an instruction window from executable ELF memory. | Formats output as `0x<hex-address>: <hex-bytes> <assembly>`.<br>Continuous disassembly follows `mt_apk_native_disassemble` directly (not `mt_apk_continue`). |
-| **`mt_apk_native_analyze_control_flow`** | Constructs a bounded static Control-Flow Graph (CFG) of an ELF function. | `outputMode`: `"summary"` for high-level structure (complexity, loop counts); `"full"` for complete basic block vertices and directed edges. |
+| **`mt_apk_native_disassemble`** | Disassembles an instruction window from executable ELF memory. | `addressKind`, `address`, `instructionMode` (`auto`/`arm`/`thumb`), `maxBytes`, `maxInstructions`, `stopAtSymbolBoundary`.<br>Output: `0x<hex-address>: <hex-bytes> <assembly>` — the byte column is what you copy into `expectedHex`.<br>Continuous windows: copy the `purpose=continue` action from `nextActions` (not `mt_apk_continue`). |
+| **`mt_apk_native_analyze_control_flow`** | Constructs a bounded static Control-Flow Graph (CFG) of an ELF function. | `outputMode`: `"summary"` for structure (complexity, loop counts) or `"full"` for blocks + edges.<br>Budgets: `maxAnalysisBytes` (recommended 16384), `maxBlocks` (recommended 256), `maxInstructions` (recommended 2000). Calls are **not** CFG edges. |
+
+### 5.2 Lib patching tools (`libapp.so`, JNI libs, engine libs)
+
+| Tool | Purpose | Key Parameters & Guidelines |
+| :--- | :--- | :--- |
+| **`mt_apk_native_patch_instructions`** | **The assembler.** Patches executable instructions in an ELF entry from assembly source. Replaces "extract lib → radare2 → re-inject" entirely. | `locator`: `zip_entry:lib/<abi>/<name>.so` (required prefix).<br>`addressKind`: `"virtual"` or `"file_offset"` (file offset is **inside the SO entry**, not the APK container).<br>`address`: decimal or `0x` hex; must be 4-byte aligned on AArch64/ARM.<br>`instructionMode`: `"auto"` for non-ARM; ARM32 may need `"arm"` / `"thumb"`.<br>`expectedHex`: stale-view guard, copied from `mt_apk_read_bytes` / `mt_apk_native_disassemble` **in the same edit session** — also defines the equal-length patch window (max 256 bytes).<br>`replacementAssembly`: instructions/labels only, assembled at the effective virtual address (PC-relative `b`/`bl`/`adrp` encode correctly); no directives, no r2 commands, 1..4096 chars.<br>`paddingMode`: `"none"` (exact length required) or `"nop"` (pad a shorter result with arch NOPs).<br>Returns `assembledHex`, `afterHex`, `patchedFileOffset`, `nopBytesInserted`. Success is local machine-code validation only — not control flow, stack balance, register semantics, or relocations. |
+| **`mt_apk_native_patch_string`** | Edits one UTF-8 string in place inside an ELF entry. | `address`, `addressKind`, `expectedText` (stale guard), `replacementText`, `paddingMode`: `"none"` (equal bytes), `"null_pad"` (C string, window = max+1, growth into existing zeros), `"space_pad"` (fixed-width, growth into ASCII spaces).<br>Window limit 4096 UTF-8 bytes. Does not resize entries, update length fields, or relocate references — never lengthen a Dart pool string. |
+| **`mt_apk_patch_bytes`** | Raw equal-length byte patch inside any ordinary zip entry — fallback when the assembler cannot express the change. | `patches[]`: `byteOffset`, `expectedHex`, `replacementHex` (identical length), non-overlapping, 1..200 per call. |
+| **`mt_apk_read_bytes`** | Reads raw uncompressed hex from a zip entry — used to re-read a patched window. | `byteOffset` (decimal, entry-relative), `maxBytes`. Returns uppercase hex + `nextActions` for paging. |
+| **`mt_apk_session_check`** | Validates staged edits before building. | `runBuildChecks=true` prepares Smali/AXML, checks entry readability, runs Dex merge checks. |
+| **`mt_apk_build`** | Repacks and signs the patched APK. | `sign=true` uses the MT keystore profile; `outputPath` is an absolute or Home-relative path (parent directory must exist; empty string → `<sourceBase>_mcp_<editSessionId>_sign.apk` in Home); `overwrite=true` to replace. |
+
+**Ordering rule:** `mt_apk_session_create` comes **before** the disassembly you will use as `expectedHex`. A base-workspace read (`editSessionId=""`) produces a guard that can mismatch. Read in the session, patch in the session.
+
+**Addressing rule:** `virtual` is the default and matches any base-0 disassembly address (blutter, IDA, Ghidra's image base). Reach for `file_offset` only when `mt_apk_native_map_address` reports a mapping miss but the bytes are known to be there.
 
 ---
 
@@ -104,7 +123,7 @@ flowchart TD
 | **`mt_apk_patch_bytes`** | Raw byte replacement inside any ordinary ZIP entry. | `patches[]`: 1..200 non-overlapping ranges with `byteOffset`, `expectedHex`, and `replacementHex` of identical length. Fallback tool when semantic editors do not apply. |
 | **`mt_apk_native_patch_instructions`** | Assembles and patches executable instructions into an ELF shared library. | `addressKind`: `"virtual"` or `"file_offset"`.<br>`replacementAssembly`: assembly instructions string.<br>`expectedHex`: safety guard against stale disassembly.<br>Handles instruction alignment and optional NOP padding. |
 | **`mt_apk_native_patch_string`** | In-place UTF-8 string modification in an ELF shared library. | `paddingMode`: controls NUL termination, space padding, or exact-length matching. Growth capped to existing padding bounds. |
-| **`mt_apk_build`** | Compiles the staged session into a finished Android APK file. | `sign`: `true` to sign using MT MCP keystore profile; `false` for unsigned output.<br>`outputName`: destination file name or absolute path.<br>`overwrite`: permits replacing existing files. |
+| **`mt_apk_build`** | Compiles the staged session into a finished Android APK file. | `sign`: `true` to sign using MT MCP keystore profile; `false` for unsigned output.<br>`outputPath`: absolute or Home-relative path, including subdirectories; the parent directory must already exist; empty string falls back to `<sourceBase>_mcp_<editSessionId>_sign.apk` in Home.<br>`overwrite`: permits replacing existing files. |
 
 ---
 
@@ -189,15 +208,25 @@ graph LR
 6. `mt_apk_session_check(runBuildChecks=true)` $\rightarrow$ verify Dex compilation.
 7. `mt_apk_build(sign=true)` $\rightarrow$ compile and sign final APK.
 
-### Scenario B: Patching a Native Function in `.so`
+### Scenario B: Patching a Native Function in `.so` (no external tools)
 1. `mt_apk_native_inspect(locator="zip_entry:lib/arm64-v8a/libnative.so")` $\rightarrow$ check ELF header & architecture.
-2. `mt_apk_native_list_items(itemKind="dynamic_symbols", namePrefix="is_rooted")` $\rightarrow$ get virtual address `0x1A2B0`.
+2. `mt_apk_native_list_items(itemKind="dynamic_symbols", namePrefix="is_rooted")` $\rightarrow$ or `mt_apk_native_xref` for the call site.
 3. `mt_apk_session_create(workspaceId=...)` $\rightarrow$ get `editSessionId`.
-4. `mt_apk_native_disassemble(address="0x1A2B0", maxBytes=16)` $\rightarrow$ get original instructions & machine bytes.
-5. `mt_apk_native_patch_instructions(address="0x1A2B0", replacementAssembly="mov w0, #0\nret", expectedHex=...)`.
-6. `mt_apk_build(sign=true)`.
+4. `mt_apk_native_map_address(address="0x1A2B0", addressKind="virtual")` $\rightarrow$ confirm `isLoaded` / `isExecutable`.
+5. `mt_apk_native_disassemble(editSessionId=..., address="0x1A2B0", maxBytes=16)` $\rightarrow$ instructions + `expectedHex`.
+6. `mt_apk_native_patch_instructions(editSessionId=..., address="0x1A2B0", addressKind="virtual", expectedHex=<from step 5>, replacementAssembly="mov w0, #0\nret", paddingMode="nop")`.
+7. `mt_apk_session_check(runBuildChecks=true)` $\rightarrow$ `mt_apk_build(sign=true)`.
 
-### Scenario C: Modifying an App String in `resources.arsc`
+### Scenario C: Flutter `libapp.so` Patch from blutter Output
+1. Ask for the blutter `out` folder; validate with `flutter_apk_pipeline.py check <out>`; index with `plan <out> --grep ... --json plan.json`.
+2. `mt_apk_workspace_open(path="mt://current-apk", temporary=false)`.
+3. `mt_apk_native_inspect(locator="zip_entry:lib/arm64-v8a/libapp.so")` $\rightarrow$ AArch64 confirmed.
+4. `mt_apk_session_create(workspaceId=...)`.
+5. `mt_apk_native_disassemble(editSessionId=..., address="<blutter addr>")` $\rightarrow$ window bytes.
+6. `mt_apk_native_patch_instructions(editSessionId=..., address="<blutter addr>", replacementAssembly="add x0, x22, #0x20\nret", paddingMode="nop")`.
+7. `mt_apk_session_check` $\rightarrow$ `mt_apk_build(sign=true)`. Full guide: [flutter-reverse-engineering.md](flutter-reverse-engineering.md).
+
+### Scenario D: Modifying an App String in `resources.arsc`
 1. `mt_apk_search(target="overview", query="Subscription Expired")` $\rightarrow$ get resource ID (e.g. `resource:0x7f100042`).
 2. `mt_apk_session_create(workspaceId=...)` $\rightarrow$ get `editSessionId`.
 3. `mt_apk_resource_read(reads=[{locator: "resource:0x7f100042", variant: "default"}])` $\rightarrow$ get `valueXml` & `targetVersion`.

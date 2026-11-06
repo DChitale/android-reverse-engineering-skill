@@ -49,7 +49,7 @@ Patch the boolean result consumed after `isActive()` (or the branch that follows
 
 ## 2. Flutter apps (local pipeline, no MT Manager)
 
-Use blutter to decompile `libapp.so`, then locate the RevenueCat Dart code by searching the blutter output for `CustomerInfo`, `getEntitlements`, `isActive`, `activeEntitlements`. Patch the Dart function / branch with radare2 per `references/flutter-reverse-engineering.md`.
+Use blutter to decompile `libapp.so`, then locate the RevenueCat Dart code by searching the blutter output for `CustomerInfo`, `getEntitlements`, `isActive`, `activeEntitlements` (`flutter_apk_pipeline.py plan <out> --grep ...`). Patch the Dart function / branch in place with `mt_apk_native_patch_instructions` per `references/flutter-reverse-engineering.md` — blutter's `addr: 0x...` goes straight in as `addressKind="virtual"`.
 
 Worked examples: **MuscleWiki**, **Liftbear**, **Glyf AI**, **Video Compressor (ShrinkVid)**. Tooling: `blutter-termux` (see `references/flutter-reverse-engineering.md` and the blutter-termux guide).
 
